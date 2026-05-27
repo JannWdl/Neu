@@ -1,4 +1,4 @@
-# ╔══════════════════════════════════════════════════════════════════╗
+﻿# ╔══════════════════════════════════════════════════════════════════╗
 # ║   Smart Irrigation v3.0 MicroPython — install.ps1               ║
 # ║   Flasht MicroPython-Firmware und lädt alle Dateien hoch        ║
 # ║                                                                  ║
