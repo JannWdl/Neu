@@ -188,7 +188,7 @@ TFT_eSPI              → DISPLAY_TYPE 3
 ### 3. Repository klonen / herunterladen
 
 ```bash
-git clone https://github.com/DEIN-USERNAME/smart-irrigation.git
+git clone https://github.com/JannWdl/Neu.git
 cd smart-irrigation
 ```
 
