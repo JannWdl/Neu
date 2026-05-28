@@ -1,88 +1,63 @@
-"""
-boot.py – Erster Start: WiFi verbinden oder AP-Modus für WLAN-Einrichtung.
-
-AP-Modus zeigt NUR WiFi-SSID/Passwort-Eingabe.
-Alle anderen Einstellungen werden im Heimnetz konfiguriert.
-"""
+# This file is executed on every boot (including wake-boot from deepsleep)
+import gc
 import network
 import time
-import sys
-import gc
-from config import get_config
 
-WIFI_TIMEOUT = 15   # Sekunden
-AP_SSID      = 'SmartIrrigation-Setup'
-
-
-def connect_wifi(ssid, password, timeout=WIFI_TIMEOUT):
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    if wlan.isconnected():
-        return wlan.ifconfig()[0]
-    wlan.connect(ssid, password)
-    print(f'Verbinde mit {ssid}', end='')
-    for _ in range(timeout * 2):
-        if wlan.isconnected():
-            ip = wlan.ifconfig()[0]
-            print(f'\nIP: {ip}')
-            return ip
-        print('.', end='')
-        time.sleep(0.5)
-    print('\nVerbindung fehlgeschlagen.')
-    return None
-
-
-def start_ap():
-    """AP-Modus starten – nur WiFi-Einrichtung, kein weiterer Zugang."""
-    wlan_sta = network.WLAN(network.STA_IF)
-    wlan_sta.active(False)
-
-    ap = network.WLAN(network.AP_IF)
-    ap.active(True)
-    ap.config(essid=AP_SSID, authmode=network.AUTH_OPEN)
-    time.sleep(0.5)
-
-    print(f'\n=== AP-MODUS ===')
-    print(f'SSID: {AP_SSID}')
-    print(f'IP:   192.168.4.1')
-    print('Öffne http://192.168.4.1 im Browser')
-
-    # Setup-Portal starten (blockiert bis Neustart)
-    from setup_portal import run_setup_portal
-    run_setup_portal()
-
-
-# ── Hauptlogik ───────────────────────────────────────────────────
-print('\n=== Smart Irrigation MicroPython v3.0 ===')
 gc.collect()
+gc.threshold(4096)
 
-cfg  = get_config()
-ssid = cfg.get('wifi.ssid', '')
+def connect_wifi():
+    from config import get_config
+    cfg = get_config()
+    ssid = cfg.get('wifi.ssid', '')
+    pw   = cfg.get('wifi.password', '')
 
-if not ssid:
-    print('Kein WLAN konfiguriert → AP-Modus')
-    start_ap()
+    if not ssid:
+        print('Kein WLAN konfiguriert.')
+        return False
+
+    sta = network.WLAN(network.STA_IF)
+    sta.active(True)
+    if sta.isconnected():
+        print(f'WLAN bereits verbunden: {sta.ifconfig()[0]}')
+        return True
+
+    print(f'Verbinde mit WLAN: {ssid} ...')
+    sta.connect(ssid, pw)
+    for _ in range(20):
+        if sta.isconnected():
+            ip = sta.ifconfig()[0]
+            print(f'WLAN verbunden: {ip}')
+            return True
+        time.sleep(0.5)
+
+    print('WLAN-Verbindung fehlgeschlagen.')
+    return False
+
+
+def sync_ntp():
+    try:
+        import ntptime
+        from config import get_config
+        cfg = get_config()
+        ntptime.host = cfg.get('system.ntp_server', 'pool.ntp.org')
+        ntptime.settime()
+        t = time.localtime()
+        print(f'NTP synchronisiert: {t[0]}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}')
+    except Exception as e:
+        print(f'NTP Fehler: {e}')
+
+
+connected = connect_wifi()
+
+if connected:
+    sync_ntp()
 else:
-    ip = connect_wifi(ssid, cfg.get('wifi.password', ''))
-    if not ip:
-        print('WLAN fehlgeschlagen → AP-Modus')
-        start_ap()
-    else:
-        # Hostname setzen
-        import machine
-        try:
-            network.WLAN(network.STA_IF).config(dhcp_hostname=cfg.get('system.hostname', 'smart-irrigation'))
-        except Exception:
-            pass
+    # Kein WLAN → Setup-Portal starten
+    try:
+        import setup_portal
+        setup_portal.start()
+    except Exception as e:
+        print(f'Setup-Portal Fehler: {e}')
 
-        # NTP Zeit synchronisieren
-        try:
-            import ntptime
-            ntptime.host = cfg.get('system.ntp_server', 'pool.ntp.org')
-            ntptime.settime()
-            print('NTP synchronisiert')
-        except Exception as e:
-            print(f'NTP Fehler: {e}')
-
-        gc.collect()
-        print(f'Boot abgeschlossen. Freier Heap: {gc.mem_free()} Bytes')
+gc.collect()

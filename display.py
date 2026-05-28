@@ -1,6 +1,8 @@
 """
 display.py – Display-Unterstützung (OLED SSD1306, LCD I2C)
 """
+from config import get_config
+import uasyncio as asyncio
 class Display:
     def __init__(self, irrigation):
         self.cfg        = get_config()

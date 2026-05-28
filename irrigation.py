@@ -1,5 +1,6 @@
 """
 irrigation.py – Kernlogik: Sensoren, Pumpen, Automatik, Logging, Wasserstand
+Kombiniert automatische Bewässerung, Zeitpläne und robustes Hardware-Fehlerhandling.
 """
 import asyncio
 import time
@@ -183,8 +184,12 @@ class Irrigation:
             if self.water_level_pct <= min_pct:
                 self._log_event(-1, 'water_low',
                     f'Wasserstand kritisch: {self.water_level_pct}%')
+        except OSError:
+            # Hier fangen wir den Hardware-EIO Fehler [Errno 5] gezielt ab!
+            print('[WARNUNG] Wasserstand-Sensor aktiviert, aber Hardware fehlt oder antwortet nicht.')
+            self.water_level_pct = -1  # Signalisiert dem System "Fehler/Nicht verfügbar"
         except Exception as e:
-            print(f'Wasserstand Fehler: {e}')
+            print(f'Wasserstand unvorhergesehener Fehler: {e}')
 
     # ── Auto-Bewässerung ──────────────────────────────────────────────
     def check_auto_watering(self):
@@ -207,181 +212,123 @@ class Irrigation:
             # Schwellwert (wetterbereinigt)
             thresh = self._adjusted_thresh(ch)
             if ch.moisture_pct < thresh:
-                started = ch.start_pump()
-                if started:
-                    plant = get_plant(ch.cfg.get('plant_idx', 0))
-                    self._log_event(ch.id, 'water_start',
-                        f'Auto: {ch.moisture_pct}%<{thresh}% Pflanze:{plant[1]}')
+                ch.start_pump()
+                self._log_event(ch.id, 'water_start',
+                    f'Auto: {ch.moisture_pct}%<{thresh}% Pflanze:{get_plant(ch.cfg.get("plant_idx",0))["name_de"]}')
 
     def _skip_due_to_weather(self, ch):
-        if not self.weather:
+        w = self.weather
+        if not w:
             return False
-        plant = get_plant(ch.cfg.get('plant_idx', 0))
-        # Staunässe-sensitive Pflanzen + hohe Luftfeuchte
-        if plant[9] and self.weather.get('humidity', 0) > 90:
-            return True
-        # Regen-Skip
-        if (self.cfg.get('weather.skip_on_rain') and
-                (self.weather.get('rain_1h', 0) > 2.0 or self.weather.get('rain_forecast'))):
+        cfg = self.cfg.as_dict().get('weather', {})
+        if not cfg.get('skip_on_rain'):
+            return False
+        if w.get('rain_forecast') or w.get('rain_1h', 0) > 1.0:
             return True
         return False
 
     def _adjusted_thresh(self, ch):
-        plant  = get_plant(ch.cfg.get('plant_idx', 0))
-        temp   = self.weather.get('temp') if self.weather else None
-        hum    = self.weather.get('humidity') if self.weather else None
-        base   = ch.cfg.get('moisture_thresh', 40)
-        # Nutze plant-basierten Threshold wenn > channel-thresh
-        plant_thresh = get_thresh_adjusted(plant, temp, hum)
-        return max(base, plant_thresh)
-
-    # ── Zeitplan-Bewässerung ──────────────────────────────────────────
-    def check_schedule(self):
-        if not self.cfg.get('schedule.enabled', False):
-            return
-        t = time.localtime()
-        now_h, now_m, now_dow = t[3], t[4], t[6]
-        for entry in self.cfg.get('schedule.entries') or []:
-            ch_id = entry.get('channel', 0)
-            if ch_id >= len(self.channels):
-                continue
-            ch = self.channels[ch_id]
-            if ch.pump_running:
-                continue
-            days = entry.get('days', list(range(7)))
-            if now_dow not in days:
-                continue
-            if entry.get('hour') == now_h and entry.get('minute') == now_m:
-                dur = entry.get('duration_s', ch.cfg.get('water_duration', 30))
-                if ch.start_pump(dur):
-                    self._log_event(ch_id, 'water_schedule',
-                        f'Zeitplan: {now_h:02d}:{now_m:02d}')
-
-    # ── Kalibrierung ──────────────────────────────────────────────────
-    def calibrate_dry(self, ch_id):
-        if ch_id >= len(self.channels):
-            return None
-        raw = self.channels[ch_id].read_adc()
-        self.cfg.set_channel(ch_id, {'dry_adc': raw})
-        self.channels[ch_id].cfg['dry_adc'] = raw
-        self._log_event(ch_id, 'calib_dry', f'Trockenwert: {raw}')
-        return raw
-
-    def calibrate_wet(self, ch_id):
-        if ch_id >= len(self.channels):
-            return None
-        raw = self.channels[ch_id].read_adc()
-        self.cfg.set_channel(ch_id, {'wet_adc': raw})
-        self.channels[ch_id].cfg['wet_adc'] = raw
-        self._log_event(ch_id, 'calib_wet', f'Nasswert: {raw}')
-        return raw
+        from plants_db import get_thresh_adjusted
+        plant_idx = ch.cfg.get('plant_idx', 0)
+        base      = ch.cfg.get('moisture_thresh', 40)
+        return get_thresh_adjusted(plant_idx, base, self.weather)
 
     # ── Logging ───────────────────────────────────────────────────────
-    def log_readings(self):
-        for ch in self.channels:
-            if not ch.cfg.get('enabled'):
-                continue
-            path = f'{LOG_DIR}/ch{ch.id}.json'
-            try:
-                try:
-                    with open(path, 'r') as f:
-                        data = json.load(f)
-                except Exception:
-                    data = {'readings': []}
-                readings = data.get('readings', [])
-                readings.append({'ts': _ts(), 'm': ch.moisture_pct})
-                if len(readings) > MAX_READINGS:
-                    readings = readings[-MAX_READINGS:]
-                data['readings'] = readings
-                with open(path, 'w') as f:
-                    json.dump(data, f)
-            except Exception as e:
-                print(f'Log error CH{ch.id}: {e}')
-            gc.collect()
-
-    def _log_event(self, ch_id, event_type, msg):
-        print(f'[EVENT] {event_type} ch{ch_id}: {msg}')
-        path = f'{LOG_DIR}/events.json'
+    def _log_event(self, ch_id, etype, msg):
+        entry = {'ts': _ts(), 'type': etype, 'msg': msg, 'ch': ch_id}
+        log_file = f'{LOG_DIR}/events.json'
         try:
             try:
-                with open(path, 'r') as f:
+                with open(log_file, 'r') as f:
                     data = json.load(f)
             except Exception:
                 data = {'events': []}
-            evts = data.get('events', [])
-            evts.append({'ts': _ts(), 'type': event_type, 'ch': ch_id, 'msg': msg})
-            if len(evts) > MAX_EVENTS:
-                evts = evts[-MAX_EVENTS:]
-            data['events'] = evts
-            with open(path, 'w') as f:
+            data['events'].append(entry)
+            if len(data['events']) > MAX_EVENTS:
+                data['events'] = data['events'][-MAX_EVENTS:]
+            with open(log_file, 'w') as f:
                 json.dump(data, f)
         except Exception as e:
-            print(f'Event log error: {e}')
+            print(f'Log error: {e}')
 
-    def get_logs(self, ch_id, limit=48):
-        path = f'{LOG_DIR}/ch{ch_id}.json'
+    def _log_reading(self, ch_id, moisture):
+        log_file = f'{LOG_DIR}/ch{ch_id}.json'
+        entry = {'ts': _ts(), 'm': moisture}
         try:
-            with open(path, 'r') as f:
-                data = json.load(f)
-            return data.get('readings', [])[-limit:]
-        except Exception:
-            return []
+            try:
+                with open(log_file, 'r') as f:
+                    data = json.load(f)
+            except Exception:
+                data = {'readings': []}
+            data['readings'].append(entry)
+            if len(data['readings']) > MAX_READINGS:
+                data['readings'] = data['readings'][-MAX_READINGS:]
+            with open(log_file, 'w') as f:
+                json.dump(data, f)
+        except Exception as e:
+            print(f'Reading log error: {e}')
 
-    def get_events(self, limit=50):
+    def get_events(self, limit=30):
         try:
             with open(f'{LOG_DIR}/events.json', 'r') as f:
-                data = json.load(f)
-            return data.get('events', [])[-limit:]
+                return json.load(f).get('events', [])[-limit:]
         except Exception:
             return []
 
-    # ── Haupt-Task ────────────────────────────────────────────────────
+    def get_logs(self, ch_id, limit=30):
+        try:
+            with open(f'{LOG_DIR}/ch{ch_id}.json', 'r') as f:
+                return json.load(f).get('readings', [])[-limit:]
+        except Exception:
+            return []
+
+    # ── Status ────────────────────────────────────────────────────────
+    def status_dict(self):
+        import network, gc
+        sta = network.WLAN(network.STA_IF)
+        return {
+            'ip':          sta.ifconfig()[0] if sta.isconnected() else '0.0.0.0',
+            'rssi':        sta.status('rssi') if sta.isconnected() else 0,
+            'heap':        gc.mem_free(),
+            'water_level': self.water_level_pct,
+            'channels':    [ch.as_dict() for ch in self.channels],
+        }
+
+    # ── Haupt-Loop ────────────────────────────────────────────────────
     async def run(self):
-        log_timer    = 0
-        sensor_timer = 0
-        sched_timer  = 0
+        """Sensor-Lese- und Automatik-Loop."""
+        import asyncio
+        SENSOR_INTERVAL  = 300   # Sekunden zwischen Sensor-Logs
+        AUTO_INTERVAL    = 60    # Sekunden zwischen Automatik-Checks
+        last_log  = 0
+        last_auto = 0
 
         while True:
-            now = time.time()
-
-            # Sensoren alle 10s
-            if now - sensor_timer >= 10:
-                sensor_timer = now
+            now = asyncio.ticks_ms() // 1000 if hasattr(asyncio, 'ticks_ms') else 0
+            try:
                 self.update_sensors()
                 self.measure_water_level()
-                self.check_auto_watering()
 
-            # Zeitplan jede Minute prüfen
-            if now - sched_timer >= 60:
-                sched_timer = now
-                self.check_schedule()
+                # Pumpen-Timeout prüfen
+                for ch in self.channels:
+                    ch.check_pump_timeout()
 
-            # Pump-Timeouts ständig prüfen
-            for ch in self.channels:
-                ch.check_pump_timeout()
+                # Sensor-Werte loggen (alle 5 min)
+                import time
+                t = time.time()
+                if t - last_log >= SENSOR_INTERVAL:
+                    for ch in self.channels:
+                        if ch.cfg.get('enabled'):
+                            self._log_reading(ch.id, ch.moisture_pct)
+                    last_log = t
 
-            # Logging alle 5 Minuten
-            if now - log_timer >= 300:
-                log_timer = now
-                self.log_readings()
+                # Auto-Bewässerung (jede Minute)
+                if t - last_auto >= AUTO_INTERVAL:
+                    self.check_auto_watering()
+                    last_auto = t
+
+            except Exception as e:
+                print(f'Irrigation loop error: {e}')
 
             gc.collect()
-            await asyncio.sleep(1)
-
-    def status_dict(self):
-        import gc
-        import network
-        import os
-        sta = network.WLAN(network.STA_IF)
-        statvfs = os.statvfs('/')
-        free_flash = statvfs[0] * statvfs[3]
-        return {
-            'uptime': time.time(),
-            'heap': gc.mem_free(),
-            'rssi': sta.status('rssi') if sta.isconnected() else 0,
-            'ip': sta.ifconfig()[0] if sta.isconnected() else '',
-            'flash_free': free_flash,
-            'water_level': self.water_level_pct,
-            'channels': [ch.as_dict() for ch in self.channels],
-            'weather': self.weather,
-        }
+            await asyncio.sleep(10)

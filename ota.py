@@ -1,6 +1,7 @@
 """
 ota.py – OTA Updates: Web-Upload, Telegram .py-Dateien, GitHub-Release
 """
+from config import get_config
 class OTA:
     def __init__(self, telegram_token=''):
         self.cfg    = get_config()
@@ -91,3 +92,4 @@ class OTA:
             except Exception as e:
                 print(f'OTA GitHub {fname}: {e}')
         return updated
+�

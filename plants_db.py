@@ -2,6 +2,7 @@
 plants_db.py – Pflanzendatenbank
 20 vorkonfigurierte Profile mit Feuchtigkeitsschwellen, Bewässerungsdauer etc.
 """
+from config import get_config
 
 PLANTS = [
     # id, name_de, name_en, emoji, min%, max%, ideal%, dauer_s, interval_h, ow_sensitiv, temp_hot_adj, notiz
@@ -64,3 +65,4 @@ def get_thresh_adjusted(plant, weather_temp, weather_humidity):
         elif weather_temp < 8:
             thresh = max(0, thresh - 5)
     return thresh
+�

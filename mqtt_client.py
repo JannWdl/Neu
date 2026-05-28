@@ -1,6 +1,7 @@
 """
 mqtt_client.py – MQTT + Home Assistant Auto-Discovery
 """
+from config import get_config
 class MQTTClient:
     def __init__(self, irrigation):
         self.cfg        = get_config()
@@ -96,3 +97,4 @@ class MQTTClient:
                     print(f'MQTT error: {e}')
                     self._connected = False
             await asyncio.sleep(30)
+�
