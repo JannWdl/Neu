@@ -157,3 +157,4 @@ def get_config():
     if _instance is None:
         _instance = Config()
     return _instance
+
