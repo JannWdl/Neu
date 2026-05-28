@@ -92,4 +92,4 @@ class OTA:
             except Exception as e:
                 print(f'OTA GitHub {fname}: {e}')
         return updated
-�
+

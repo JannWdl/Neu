@@ -65,4 +65,4 @@ def get_thresh_adjusted(plant, weather_temp, weather_humidity):
         elif weather_temp < 8:
             thresh = max(0, thresh - 5)
     return thresh
-�
+

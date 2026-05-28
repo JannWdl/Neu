@@ -68,4 +68,4 @@ class Weather:
         while True:
             self.update()
             await asyncio.sleep(1800)  # alle 30 Minuten
-�
+
