@@ -329,7 +329,11 @@ class Irrigation:
 
     def _adjusted_thresh(self, ch):
         base = ch.cfg.get('moisture_thresh', 40)
-        return get_thresh_adjusted(ch.cfg.get('plant_idx', 0), base, self.weather)
+        try:
+            return get_thresh_adjusted(ch.cfg.get('plant_idx', 0), base, self.weather)
+        except Exception as e:
+            print(f"[Anpassungs-Fehler] Nutze Standard-Schwelle: {e}")
+            return base
 
     def _check_alerts(self):
         """Tank-, Frost- und Düngerwarnungen prüfen und ggf. melden."""
@@ -495,7 +499,10 @@ class Irrigation:
                     last_alert = t
 
             except Exception as e:
-                print(f'Irrigation loop error: {e}')
+                import sys
+                print("\n🚨 [LOOP-CRASH] Genaue Fehlerstelle:")
+                sys.print_exception(e)
+                print("🚨 ----------------------------------\n")
 
             gc.collect()
             # Wenn Pumpe läuft: häufiger prüfen (für genaues Timing)
