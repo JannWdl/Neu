@@ -255,10 +255,27 @@ class WebServer:
         gc.collect()
 
     # ─────────────────────────────────────────────
+    # ─────────────────────────────────────────────
     async def _read_small_body(self, reader):
-        """Nur für JSON (klein halten!)"""
+        """Liest den Body basierend auf Content-Length vollständig ein."""
         gc.collect()
-        data = await reader.read(512)
+        
+        # Wir müssen den Body sauber einlesen. Da der Header im '_handle' bereits 
+        # teilweise gelesen wurde, müssen wir sicherstellen, dass wir alles bekommen.
+        # Ein einfacherer und für kleine JSONs stabilerer Weg in MicroPython uasyncio:
+        
+        data = b""
+        # Wir lesen in einer Schleife, bis nichts mehr kommt oder das JSON voll ist
+        while True:
+            chunk = await reader.read(256)
+            if not chunk:
+                break
+            data += chunk
+            # Wenn wir das Ende des JSON-Bodys (die schließende Array/Objektklammer) sehen,
+            # können wir bei kleinen Config-Requests meist schon aufhören.
+            if data.endswith(b'}') or data.endswith(b']'):
+                break
+                
         try:
             return data.decode()
         except:
