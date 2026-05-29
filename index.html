@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="de"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Irrigation</title>
+<style>
+:root{--bg:#0a0f1e;--s:#111827;--s2:#1a2536;--bd:#1f3050;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;--blue:#3b82f6;--t:#f1f5f9;--m:#64748b}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--t);font-family:system-ui,sans-serif;font-size:14px;padding-bottom:80px}
+header{background:var(--s);border-bottom:1px solid var(--bd);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
+.logo{font-size:18px;font-weight:700;color:var(--green)}
+.hdr-right{display:flex;align-items:center;gap:10px}
+.ip{font-size:11px;color:var(--m)}
+.rssi{font-size:11px;color:var(--m)}
+.heap{font-size:11px;color:var(--m)}
+nav{display:flex;background:var(--s);border-bottom:1px solid var(--bd);overflow-x:auto}
+.nav-btn{padding:10px 18px;border:none;background:transparent;color:var(--m);font-size:13px;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent}
+.nav-btn.active{color:var(--green);border-bottom-color:var(--green)}
+.page{display:none;padding:16px;max-width:780px;margin:0 auto}
+.page.active{display:block}
+.card{background:var(--s);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:12px}
+.card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--m);margin-bottom:12px}
+.ch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.ch-card{background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:12px;cursor:pointer;transition:border .2s}
+.ch-card:hover{border-color:var(--blue)}
+.ch-card.pumping{border-color:var(--green);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{border-color:var(--green)}50%{border-color:#166534}}
+.ch-name{font-size:12px;font-weight:600;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-pct{font-size:2rem;font-weight:700;line-height:1}
+.ch-bar-wrap{background:#1e293b;border-radius:3px;height:5px;margin:6px 0}
+.ch-bar{height:5px;border-radius:3px;transition:width .5s}
+.ch-meta{font-size:11px;color:var(--m);margin-top:4px}
+.badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700}
+.badge-g{background:#14532d;color:var(--green)}
+.badge-r{background:#7f1d1d;color:var(--red)}
+.badge-b{background:#1e3a5f;color:var(--blue)}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:7px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .15s}
+.btn:hover{opacity:.85}
+.btn-g{background:var(--green);color:#000}
+.btn-r{background:var(--red);color:#fff}
+.btn-s{background:var(--s2);color:var(--t);border:1px solid var(--bd)}
+.btn-b{background:var(--blue);color:#fff}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.stat-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd);font-size:13px}
+.stat-row:last-child{border:none}
+label{display:block;font-size:11px;color:var(--m);margin:10px 0 4px}
+input[type=text],input[type=number],input[type=password],select{width:100%;background:var(--s2);border:1px solid var(--bd);border-radius:7px;color:var(--t);padding:9px 11px;font-size:13px;outline:none}
+input:focus,select:focus{border-color:var(--blue)}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0}
+.toggle{position:relative;width:40px;height:22px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:#374151;border-radius:22px;cursor:pointer;transition:.3s}
+.slider:before{content:'';position:absolute;width:16px;height:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.3s}
+input:checked+.slider{background:var(--green)}
+input:checked+.slider:before{transform:translateX(18px)}
+.events{font-size:12px;line-height:2}
+.ev-row{display:flex;gap:10px;border-bottom:1px solid var(--bd);padding:4px 0}
+.ev-ts{color:var(--m);flex-shrink:0}
+.wl-bar-wrap{background:#1e293b;border-radius:4px;height:10px;margin:8px 0}
+.wl-bar{height:10px;border-radius:4px;background:var(--blue);transition:width .5s}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--bd);border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--green);color:#000;padding:10px 20px;border-radius:8px;font-weight:600;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:100}
+.toast.show{opacity:1}
+
+/* ── Setup-Assistent ── */
+#wizard{position:fixed;inset:0;background:var(--bg);z-index:1000;overflow-y:auto;display:none}
+#wizard.show{display:block}
+.wiz-inner{max-width:560px;margin:0 auto;padding:24px 18px 60px;min-height:100vh;display:flex;flex-direction:column}
+.wiz-progress{display:flex;gap:6px;margin-bottom:24px}
+.wiz-dot{flex:1;height:4px;border-radius:2px;background:var(--bd);transition:background .3s}
+.wiz-dot.done{background:var(--green)}
+.wiz-dot.active{background:var(--blue)}
+.wiz-step{flex:1;display:none;flex-direction:column}
+.wiz-step.active{display:flex}
+.wiz-icon{font-size:48px;text-align:center;margin:20px 0 10px}
+.wiz-h{font-size:22px;font-weight:700;text-align:center;margin-bottom:8px}
+.wiz-sub{color:var(--m);text-align:center;font-size:13px;line-height:1.6;margin-bottom:24px}
+.wiz-body{flex:1}
+.wiz-nav{display:flex;gap:10px;margin-top:24px}
+.wiz-nav .btn{flex:1;justify-content:center;padding:13px}
+.wiz-live{background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:16px;text-align:center;margin:12px 0}
+.wiz-live-val{font-size:2.4rem;font-weight:700;line-height:1}
+.wiz-live-raw{font-size:12px;color:var(--m);margin-top:4px}
+.wiz-opt{background:var(--s2);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:10px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:border .2s}
+.wiz-opt:hover{border-color:var(--blue)}
+.wiz-opt.sel{border-color:var(--green);background:#14532d22}
+.wiz-opt-check{width:22px;height:22px;border-radius:6px;border:2px solid var(--bd);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px}
+.wiz-opt.sel .wiz-opt-check{background:var(--green);border-color:var(--green);color:#000}
+.wiz-skip{text-align:center;margin-top:14px}
+.wiz-skip a{color:var(--m);font-size:12px;cursor:pointer;text-decoration:underline}
+
+</style>
+</head><body>
+
+
+<!-- ══ SETUP-ASSISTENT ══ -->
+<div id="wizard">
+  <div class="wiz-inner">
+    <div class="wiz-progress" id="wiz-progress"></div>
+
+    <!-- Schritt 0: Willkommen -->
+    <div class="wiz-step active" data-step="0">
+      <div class="wiz-icon">🌱</div>
+      <div class="wiz-h">Willkommen!</div>
+      <div class="wiz-sub">Dieser Assistent richtet dein Bewässerungssystem Schritt für Schritt ein. Du kannst alles später unter Einstellungen ändern.</div>
+      <div class="wiz-body"></div>
+      <div class="wiz-nav">
+        <button class="btn btn-g" onclick="wizNext()">Los geht's →</button>
+      </div>
+      <div class="wiz-skip"><a onclick="wizFinish(true)">Assistent überspringen</a></div>
+    </div>
+
+    <!-- Schritt 1: Anzahl Kanäle -->
+    <div class="wiz-step" data-step="1">
+      <div class="wiz-icon">🔢</div>
+      <div class="wiz-h">Wie viele Kanäle?</div>
+      <div class="wiz-sub">Jeder Kanal hat einen Feuchtigkeitssensor und eine Pumpe. Du kannst sie gleich einzeln einrichten.</div>
+      <div class="wiz-body">
+        <label>Anzahl aktiver Kanäle (1–8)</label>
+        <input type="number" id="wiz-nch" min="1" max="8" value="1">
+      </div>
+      <div class="wiz-nav">
+        <button class="btn btn-s" onclick="wizPrev()">← Zurück</button>
+        <button class="btn btn-b" onclick="wizSetChannels()">Weiter →</button>
+      </div>
+    </div>
+
+    <!-- Schritt 2: Kanal-Einrichtung (dynamisch wiederholt) -->
+    <div class="wiz-step" data-step="2">
+      <div class="wiz-icon">💧</div>
+      <div class="wiz-h" id="wiz-ch-title">Kanal 1</div>
+      <div class="wiz-sub" id="wiz-ch-sub">Gib dem Kanal einen Namen und prüfe die Pins.</div>
+      <div class="wiz-body">
+        <label>Name</label>
+        <input type="text" id="wiz-ch-name" placeholder="z.B. Tomaten">
+        <div class="row" style="gap:10px">
+          <div style="flex:1"><label>Sensor-Pin (ADC)</label><input type="number" id="wiz-ch-spin"></div>
+          <div style="flex:1"><label>Relais-Pin</label><input type="number" id="wiz-ch-rpin"></div>
+        </div>
+        <label>Relais-Typ</label>
+        <select id="wiz-ch-relay">
+          <option value="1">Active-LOW (Standard China-Relais)</option>
+          <option value="0">Active-HIGH</option>
+        </select>
+
+        <div style="margin-top:18px;border-top:1px solid var(--bd);padding-top:14px">
+          <div class="card-title" style="margin-bottom:6px">Sensor kalibrieren</div>
+          <div class="wiz-live">
+            <div class="wiz-live-val" id="wiz-live-pct">– %</div>
+            <div class="wiz-live-raw" id="wiz-live-raw">Live-Wert</div>
+          </div>
+          <div class="row" style="gap:10px">
+            <button class="btn btn-s" style="flex:1;justify-content:center" onclick="wizCalib('dry')">🌵 Trocken (Luft)</button>
+            <button class="btn btn-s" style="flex:1;justify-content:center" onclick="wizCalib('wet')">💦 Nass (Wasser)</button>
+          </div>
+          <div id="wiz-calib-info" style="font-size:11px;color:var(--m);margin-top:6px;text-align:center">Sensor in Luft halten → Trocken. In Wasser → Nass.</div>
+        </div>
+
+        <div style="margin-top:16px">
+          <label>Gießmodus</label>
+          <select id="wiz-ch-mode">
+            <option value="time">Zeitbasiert (X Sekunden)</option>
+            <option value="moisture">Bis Zielfeuchte</option>
+          </select>
+          <div class="toggle-row" style="margin-top:8px"><span>Automatik aktiv</span>
+            <label class="toggle"><input type="checkbox" id="wiz-ch-auto" checked><span class="slider"></span></label>
+          </div>
+        </div>
+      </div>
+      <div class="wiz-nav">
+        <button class="btn btn-s" onclick="wizChannelBack()">← Zurück</button>
+        <button class="btn btn-b" id="wiz-ch-next" onclick="wizChannelNext()">Weiter →</button>
+      </div>
+    </div>
+
+    <!-- Schritt 3: Optionale Module -->
+    <div class="wiz-step" data-step="3">
+      <div class="wiz-icon">🧩</div>
+      <div class="wiz-h">Zusatz-Funktionen</div>
+      <div class="wiz-sub">Was möchtest du nutzen? (später konfigurierbar)</div>
+      <div class="wiz-body">
+        <div class="wiz-opt" id="wopt-tg" onclick="wizToggle('tg')">
+          <div class="wiz-opt-check">✓</div>
+          <div><b>Telegram</b><br><span style="font-size:12px;color:var(--m)">Steuerung & Benachrichtigungen</span></div>
+        </div>
+        <div class="wiz-opt" id="wopt-mqtt" onclick="wizToggle('mqtt')">
+          <div class="wiz-opt-check">✓</div>
+          <div><b>MQTT / Home Assistant</b><br><span style="font-size:12px;color:var(--m)">Smart-Home-Anbindung</span></div>
+        </div>
+        <div class="wiz-opt" id="wopt-weather" onclick="wizToggle('weather')">
+          <div class="wiz-opt-check">✓</div>
+          <div><b>Wetter & Frostschutz</b><br><span style="font-size:12px;color:var(--m)">Regen-/Frost-Erkennung</span></div>
+        </div>
+        <div class="wiz-opt" id="wopt-dht" onclick="wizToggle('dht')">
+          <div class="wiz-opt-check">✓</div>
+          <div><b>Lokaler Temperatursensor</b><br><span style="font-size:12px;color:var(--m)">DHT22 / DHT11</span></div>
+        </div>
+      </div>
+      <div class="wiz-nav">
+        <button class="btn btn-s" onclick="wizPrev()">← Zurück</button>
+        <button class="btn btn-b" onclick="wizNext()">Weiter →</button>
+      </div>
+    </div>
+
+    <!-- Schritt 4: Fertig -->
+    <div class="wiz-step" data-step="4">
+      <div class="wiz-icon">✅</div>
+      <div class="wiz-h">Fertig!</div>
+      <div class="wiz-sub" id="wiz-done-sub">Dein System ist eingerichtet. Die ausgewählten Zusatzmodule kannst du jetzt unter Einstellungen mit deinen Zugangsdaten füllen.</div>
+      <div class="wiz-body"></div>
+      <div class="wiz-nav">
+        <button class="btn btn-g" onclick="wizFinish(false)">Dashboard öffnen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<header>
+  <div class="logo">🌱 Smart Irrigation</div>
+  <div class="hdr-right">
+    <span class="ip" id="hdr-ip">–</span>
+    <span class="rssi" id="hdr-rssi">–</span>
+    <span class="heap" id="hdr-heap">–</span>
+  </div>
+</header>
+
+<nav>
+  <button class="nav-btn active" onclick="showPage('dash',this)">Dashboard</button>
+  <button class="nav-btn" onclick="showPage('channels',this)">Kanäle</button>
+  <button class="nav-btn" onclick="showPage('schedule',this)">Zeitplan</button>
+  <button class="nav-btn" onclick="showPage('stats',this)">Statistik</button>
+  <button class="nav-btn" onclick="showPage('settings',this)">Einstellungen</button>
+  <button class="nav-btn" onclick="showPage('log',this)">Log</button>
+</nav>
+
+<!-- ── DASHBOARD ── -->
+<div class="page active" id="page-dash">
+  <div id="frost-banner" style="display:none;background:#1e3a5f;color:#93c5fd;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:14px">❄️ Frostschutz aktiv – Bewässerung pausiert</div>
+  <div id="active-pump-banner" style="display:none;background:#14532d;color:#22c55e;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:14px"></div>
+  <div class="card">
+    <div class="card-title">Übersicht</div>
+    <div class="ch-grid" id="dash-grid"></div>
+  </div>
+  <div class="card" id="wl-card" style="display:none">
+    <div class="card-title">Wasserstand</div>
+    <div class="wl-bar-wrap"><div class="wl-bar" id="wl-bar" style="width:0%"></div></div>
+    <div style="font-size:13px;color:var(--m)" id="wl-txt">–</div>
+  </div>
+  <div class="card" id="weather-card" style="display:none">
+    <div class="card-title">🌤 Wetter</div>
+    <div id="weather-body"></div>
+  </div>
+</div>
+
+<!-- ── KANÄLE ── -->
+<div class="page" id="page-channels">
+  <div id="ch-detail"></div>
+</div>
+
+<!-- ── EINSTELLUNGEN ── -->
+<div class="page" id="page-settings">
+  <div class="card">
+    <div class="card-title">WLAN</div>
+    <label>SSID</label><input id="cfg-ssid" type="text">
+    <label>Passwort</label><input id="cfg-wpw" type="password" placeholder="unverändert lassen = leer">
+    <div style="margin-top:12px"><button class="btn btn-b" onclick="saveCfg('wifi')">Speichern</button></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Telegram</div>
+    <div class="toggle-row"><span>Aktivieren</span>
+      <label class="toggle"><input type="checkbox" id="cfg-tg-en"><span class="slider"></span></label>
+    </div>
+    <label>Bot-Token</label><input id="cfg-tg-tok" type="text" placeholder="123456:ABC...">
+    <label>Chat-ID</label><input id="cfg-tg-chat" type="text">
+    <div style="margin-top:12px"><button class="btn btn-b" onclick="saveCfg('telegram')">Speichern</button></div>
+  </div>
+  <div class="card">
+    <div class="card-title">MQTT</div>
+    <div class="toggle-row"><span>Aktivieren</span>
+      <label class="toggle"><input type="checkbox" id="cfg-mq-en"><span class="slider"></span></label>
+    </div>
+    <label>Server</label><input id="cfg-mq-srv" type="text" placeholder="192.168.1.x">
+    <label>Port</label><input id="cfg-mq-port" type="number" value="1883">
+    <label>User</label><input id="cfg-mq-user" type="text">
+    <label>Passwort</label><input id="cfg-mq-pw" type="password">
+    <label>Base Topic</label><input id="cfg-mq-topic" type="text">
+    <div style="margin-top:12px"><button class="btn btn-b" onclick="saveCfg('mqtt')">Speichern</button></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Wetter (OpenWeatherMap)</div>
+    <div class="toggle-row"><span>Aktivieren</span>
+      <label class="toggle"><input type="checkbox" id="cfg-wt-en"><span class="slider"></span></label>
+    </div>
+    <div class="toggle-row"><span>Bei Regen pausieren</span>
+      <label class="toggle"><input type="checkbox" id="cfg-wt-rain"><span class="slider"></span></label>
+    </div>
+    <div class="toggle-row"><span>Frostschutz</span>
+      <label class="toggle"><input type="checkbox" id="cfg-wt-frost"><span class="slider"></span></label>
+    </div>
+    <label>Frost-Schwelle (°C)</label><input id="cfg-wt-frostt" type="number" value="4">
+    <label>API Key</label><input id="cfg-wt-key" type="text">
+    <label>Stadt</label><input id="cfg-wt-city" type="text">
+    <div style="margin-top:12px"><button class="btn btn-b" onclick="saveCfg('weather')">Speichern</button></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Lokaler Sensor (DHT22/DHT11)</div>
+    <div class="toggle-row"><span>Aktivieren</span>
+      <label class="toggle"><input type="checkbox" id="cfg-dht-en"><span class="slider"></span></label>
+    </div>
+    <label>Daten-Pin (GPIO)</label><input id="cfg-dht-pin" type="number" value="4">
+    <label>Typ</label>
+    <select id="cfg-dht-type"><option value="22">DHT22</option><option value="11">DHT11</option></select>
+    <div style="margin-top:12px"><button class="btn btn-b" onclick="saveCfg('dht')">Speichern</button></div>
+  </div>
+  <div class="card">
+    <div class="card-title">System</div>
+    <label>Aktive Kanäle (1–8)</label><input id="cfg-sys-ch" type="number" min="1" max="8">
+    <label>Zeitzone (Stunden Offset)</label><input id="cfg-sys-tz" type="number" min="-12" max="14">
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn btn-b" onclick="saveCfg('system')">Speichern</button>
+      <button class="btn btn-r" onclick="reboot()">Neustart</button>
+    </div>
+    <div style="margin-top:10px"><button class="btn btn-s" onclick="wizStart()">🪄 Setup-Assistent erneut starten</button></div>
+  </div>
+  <div class="card">
+    <div class="card-title">OTA – Datei-Update</div>
+    <p style="font-size:12px;color:var(--m);margin-bottom:10px">.py-Datei auswählen und direkt übertragen</p>
+    <input type="file" id="ota-file" accept=".py" style="margin-bottom:10px">
+    <button class="btn btn-s" onclick="uploadOta()">Hochladen</button>
+    <div id="ota-status" style="font-size:12px;color:var(--m);margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- ── LOG ── -->
+<div class="page" id="page-log">
+  <div class="card">
+    <div class="card-title">Ereignisse</div>
+    <div class="events" id="log-events"><div style="color:var(--m)">Lade...</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Feuchtigkeit – Kanal <select id="log-ch-sel" onchange="loadLog()" style="width:auto;display:inline-block;padding:3px 6px;font-size:12px"></select></div>
+    <div id="log-readings" style="font-size:12px;color:var(--m)">Lade...</div>
+  </div>
+</div>
+
+<!-- ── ZEITPLAN ── -->
+<div class="page" id="page-schedule">
+  <div class="card">
+    <div class="toggle-row"><span style="font-weight:600">Zeitpläne aktiv</span>
+      <label class="toggle"><input type="checkbox" id="sched-en"><span class="slider"></span></label>
+    </div>
+    <p style="font-size:12px;color:var(--m)">Feste Gießzeiten zusätzlich zur Automatik. Frostschutz gilt weiterhin.</p>
+  </div>
+  <div class="card">
+    <div class="card-title">Einträge</div>
+    <div id="sched-list"></div>
+    <button class="btn btn-s" style="margin-top:10px" onclick="addSchedEntry()">+ Eintrag hinzufügen</button>
+  </div>
+  <button class="btn btn-b" onclick="saveSchedule()">Zeitplan speichern</button>
+</div>
+
+<!-- ── STATISTIK ── -->
+<div class="page" id="page-stats">
+  <div class="card">
+    <div class="card-title">Verbrauch je Kanal</div>
+    <div id="stats-body"><div style="color:var(--m)">Lade...</div></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var state = {}, cfg = {}, plants = [];
+
+function showPage(id, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  btn.classList.add('active');
+  if (id === 'settings') loadCfg();
+  if (id === 'log') { loadEvents(); loadLog(); }
+  if (id === 'channels') renderChannelDetail();
+  if (id === 'schedule') loadSchedule();
+  if (id === 'stats') loadStats();
+}
+
+function toast(msg, ok) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = ok === false ? 'var(--red)' : 'var(--green)';
+  t.style.color = ok === false ? '#fff' : '#000';
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── API ──────────────────────────────────────────
+function api(path, opts) {
+  return fetch(path, opts).then(r => r.json());
+}
+
+// ── Status-Loop ──────────────────────────────────
+function loadStatus() {
+  api('/api/status').then(function(s) {
+    state = s;
+    document.getElementById('hdr-ip').textContent = s.ip;
+    document.getElementById('hdr-rssi').textContent = s.rssi + 'dBm';
+    document.getElementById('hdr-heap').textContent = Math.round(s.heap / 1024) + 'kB';
+    renderDash();
+    if (document.getElementById('page-channels').classList.contains('active')) renderChannelDetail();
+  }).catch(function(){});
+}
+setInterval(loadStatus, 4000);
+loadStatus();
+
+// ── Dashboard ────────────────────────────────────
+function renderDash() {
+  var s = state;
+  var g = document.getElementById('dash-grid');
+  if (!s.channels) return;
+  g.innerHTML = s.channels.map(function(ch, i) {
+    var pct = ch.moisture;
+    var col = pct > 60 ? 'var(--green)' : pct > 30 ? 'var(--amber)' : 'var(--red)';
+    var badge = ch.pump
+      ? '<span class="badge badge-g">💧 PUMPE</span>'
+      : pct < (ch.thresh || 40)
+        ? '<span class="badge badge-r">TROCKEN</span>'
+        : '<span class="badge badge-g">OK</span>';
+    return '<div class="ch-card' + (ch.pump ? ' pumping' : '') + '" onclick="quickPump(' + i + ',' + ch.pump + ')">'
+      + '<div class="ch-name">' + ch.name + '</div>'
+      + '<div class="ch-pct" style="color:' + col + '">' + pct + '%</div>'
+      + '<div class="ch-bar-wrap"><div class="ch-bar" style="width:' + pct + '%;background:' + col + '"></div></div>'
+      + badge
+      + '<div class="ch-meta">' + (ch.auto_mode ? '⚙ Auto' : '✋ Manuell') + '</div>'
+      + '</div>';
+  }).join('');
+
+  // Frost-Banner
+  document.getElementById('frost-banner').style.display = s.frost_active ? '' : 'none';
+
+  // Aktive Pumpe / Warteschlange Hinweis
+  var apEl = document.getElementById('active-pump-banner');
+  if (s.active_pump >= 0 && s.channels[s.active_pump]) {
+    apEl.style.display = '';
+    var q = (s.queue||[]).length;
+    apEl.innerHTML = '💧 <b>' + s.channels[s.active_pump].name + '</b> gießt gerade'
+      + (q ? ' · ' + q + ' in Warteschlange' : '');
+  } else {
+    apEl.style.display = 'none';
+  }
+
+  // Wasserstand
+  if (s.water_level >= 0) {
+    document.getElementById('wl-card').style.display = '';
+    document.getElementById('wl-bar').style.width = s.water_level + '%';
+    var wlCol = s.water_level < 20 ? 'var(--red)' : s.water_level < 40 ? 'var(--amber)' : 'var(--blue)';
+    document.getElementById('wl-bar').style.background = wlCol;
+    document.getElementById('wl-txt').textContent = s.water_level + '%';
+  }
+
+  // Wetter
+  if (s.weather && s.weather.temp !== undefined) {
+    document.getElementById('weather-card').style.display = '';
+    var w = s.weather;
+    var dhtRow = (s.dht && s.dht.temp !== undefined)
+      ? '<div class="stat-row"><span>Sensor (lokal)</span><span>' + s.dht.temp + ' °C / ' + s.dht.humidity + '%</span></div>'
+      : '';
+    document.getElementById('weather-body').innerHTML =
+      '<div class="stat-row"><span>Temperatur</span><span>' + w.temp.toFixed(1) + ' °C</span></div>'
+      + '<div class="stat-row"><span>Luftfeuchte</span><span>' + Math.round(w.humidity) + '%</span></div>'
+      + '<div class="stat-row"><span>Niederschlag</span><span>' + (w.rain_1h||0).toFixed(1) + ' mm/h</span></div>'
+      + '<div class="stat-row"><span>Vorhersage</span><span>' + (w.rain_forecast ? '🌧 Regen' : '☀ kein Regen') + '</span></div>'
+      + dhtRow;
+  } else if (s.dht && s.dht.temp !== undefined) {
+    document.getElementById('weather-card').style.display = '';
+    document.getElementById('weather-body').innerHTML =
+      '<div class="stat-row"><span>Sensor (lokal)</span><span>' + s.dht.temp + ' °C / ' + s.dht.humidity + '%</span></div>';
+  }
+}
+
+function quickPump(i, running) {
+  if (running) {
+    api('/api/stop/' + i).then(function() { toast('Pumpe ' + (i+1) + ' gestoppt'); loadStatus(); });
+  } else {
+    api('/api/water/' + i).then(function() { toast('Pumpe ' + (i+1) + ' läuft'); loadStatus(); });
+  }
+}
+
+// ── Kanal-Detail ─────────────────────────────────
+function renderChannelDetail() {
+  if (!state.channels) return;
+  var h = state.channels.map(function(ch, i) {
+    var col = ch.moisture>60?'var(--green)':ch.moisture>30?'var(--amber)':'var(--red)';
+    var queued = (state.queue||[]).indexOf(i) >= 0;
+    return '<div class="card">'
+      + '<div class="row"><h3 style="font-size:15px">' + ch.name + '</h3>'
+      + '<div style="display:flex;gap:6px">'
+      + (ch.pump
+          ? '<button class="btn btn-r" onclick="stopPump(' + i + ')">■ Stop</button>'
+          : queued
+            ? '<span class="badge badge-b">⏳ Warteschlange</span>'
+            : '<button class="btn btn-g" onclick="startPump(' + i + ')">💧 Gießen</button>')
+      + '</div></div>'
+      + '<div style="display:flex;align-items:baseline;gap:12px;margin:8px 0">'
+      + '<span style="font-size:2.2rem;font-weight:700;color:' + col + '">' + ch.moisture + '%</span>'
+      + '<span style="color:var(--m);font-size:12px">ADC: ' + ch.raw_adc + '</span>'
+      + '</div>'
+      + '<div class="ch-bar-wrap" style="height:8px"><div class="ch-bar" style="height:8px;width:' + ch.moisture + '%;background:' + col + '"></div></div>'
+      + (ch.pump ? '<div style="color:var(--green);font-size:12px;margin-top:6px">💧 läuft seit ' + ch.pump_elapsed + 's</div>' : '')
+
+      // Name
+      + '<label>Name</label><input type="text" id="cn-' + i + '" value="' + ch.name + '">'
+
+      // Aktiv
+      + '<div class="toggle-row"><span>Kanal aktiv</span>'
+      + '<label class="toggle"><input type="checkbox"' + (ch.enabled?' checked':'') + ' id="ce-' + i + '"><span class="slider"></span></label></div>'
+
+      // Automatik
+      + '<div class="toggle-row"><span>Automatikmodus</span>'
+      + '<label class="toggle"><input type="checkbox"' + (ch.auto_mode?' checked':'') + ' id="ca-' + i + '"><span class="slider"></span></label></div>'
+
+      // Gießmodus
+      + '<label>Gießmodus</label>'
+      + '<select id="cm-' + i + '" onchange="toggleMode(' + i + ')">'
+      + '<option value="time"' + (ch.water_mode==='time'?' selected':'') + '>Zeitbasiert (Sekunden)</option>'
+      + '<option value="moisture"' + (ch.water_mode==='moisture'?' selected':'') + '>Feuchtigkeitsbasiert (bis Ziel)</option>'
+      + '</select>'
+
+      // Dauer (time-Modus)
+      + '<div id="cd-wrap-' + i + '" style="display:' + (ch.water_mode==='time'?'block':'none') + '">'
+      + '<label>Gießdauer (Sekunden, max. 120)</label>'
+      + '<input type="number" id="cd-' + i + '" value="' + ch.duration + '" min="1" max="120"></div>'
+
+      // Zielfeuchte (moisture-Modus)
+      + '<div id="ct-wrap-' + i + '" style="display:' + (ch.water_mode==='moisture'?'block':'none') + '">'
+      + '<label>Zielfeuchte (%)</label>'
+      + '<input type="number" id="ct-' + i + '" value="' + ch.moisture_target + '" min="0" max="100"></div>'
+
+      // Schwelle
+      + '<label>Gieß-Schwelle: unter (%)</label>'
+      + '<input type="number" id="cth-' + i + '" value="' + ch.thresh + '" min="0" max="100">'
+
+      // Mindestintervall
+      + '<label>Mindestpause (Stunden)</label>'
+      + '<input type="number" id="ci-' + i + '" value="' + ch.min_interval_h + '" min="0" max="168">'
+
+      + '<label>Fördermenge Pumpe (ml/min, 0 = aus)</label>'
+      + '<input type="number" id="cf-' + i + '" value="' + (ch.flow_ml_min||0) + '" min="0" max="5000">'
+
+      + '<label>Dünger-Intervall (Tage, 0 = aus)</label>'
+      + '<input type="number" id="cfd-' + i + '" value="' + (ch.fertilize_days||0) + '" min="0" max="365">'
+      + (ch.fertilize_days ? '<button class="btn btn-s" style="margin-top:6px" onclick="markFertilized(' + i + ')">🌿 Jetzt als gedüngt markieren</button>' : '')
+
+      + '<div style="margin-top:12px"><button class="btn btn-b" onclick="saveChannel(' + i + ')">Kanal speichern</button></div>'
+
+      // Kalibrierung
+      + '<div style="margin-top:14px;border-top:1px solid var(--bd);padding-top:12px">'
+      + '<div class="card-title" style="margin-bottom:8px">Sensor-Kalibrierung</div>'
+      + '<div style="display:flex;gap:8px">'
+      + '<button class="btn btn-s" onclick="calib(' + i + ',\'dry\')">Trocken (Luft)</button>'
+      + '<button class="btn btn-s" onclick="calib(' + i + ',\'wet\')">Nass (Wasser)</button>'
+      + '</div>'
+      + '<div id="calib-' + i + '" style="font-size:11px;color:var(--m);margin-top:6px">Dry: ' + ch.dry_adc + ' | Wet: ' + ch.wet_adc + '</div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+  document.getElementById('ch-detail').innerHTML = h || '<div class="card"><p style="color:var(--m)">Keine Kanäle aktiv. In Einstellungen → System die Anzahl erhöhen.</p></div>';
+}
+
+function toggleMode(i) {
+  var mode = document.getElementById('cm-' + i).value;
+  document.getElementById('cd-wrap-' + i).style.display = mode==='time' ? 'block' : 'none';
+  document.getElementById('ct-wrap-' + i).style.display = mode==='moisture' ? 'block' : 'none';
+}
+
+function saveChannel(i) {
+  var chs = state.channels.map(function(c,ci){
+    if (ci !== i) return c;
+    return Object.assign({}, c, {
+      name:            document.getElementById('cn-' + i).value,
+      enabled:         document.getElementById('ce-' + i).checked,
+      auto_mode:       document.getElementById('ca-' + i).checked,
+      water_mode:      document.getElementById('cm-' + i).value,
+      water_duration:  parseInt(document.getElementById('cd-' + i).value),
+      moisture_target: parseInt(document.getElementById('ct-' + i).value),
+      moisture_thresh: parseInt(document.getElementById('cth-' + i).value),
+      min_interval_h:  parseInt(document.getElementById('ci-' + i).value),
+      flow_ml_min:     parseInt(document.getElementById('cf-' + i).value),
+      fertilize_days:  parseInt(document.getElementById('cfd-' + i).value)
+    });
+  });
+  api('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels:chs})})
+    .then(function(r){ toast(r.ok?'Kanal gespeichert ✓':'Fehler',r.ok); loadStatus(); });
+}
+
+function markFertilized(i) {
+  api('/api/fertilized/' + i).then(function(){ toast('Als gedüngt markiert 🌿'); });
+}
+
+function startPump(i) { api('/api/water/' + i).then(function(){toast('Pumpe '+(i+1)+' an');loadStatus();}); }
+function stopPump(i)  { api('/api/stop/'  + i).then(function(){toast('Pumpe '+(i+1)+' aus');loadStatus();}); }
+function setAuto(i, v) {
+  api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({channels: state.channels.map(function(c,ci){ return ci===i ? Object.assign({},c,{auto_mode:v}) : c; })})
+  }).then(function(){toast('Auto ' + (v?'AN':'AUS'));});
+}
+function calib(i, mode) {
+  var raw = state.channels[i] && state.channels[i].raw_adc;
+  if (!raw) return;
+  var upd = {};
+  upd[mode==='dry'?'dry_adc':'wet_adc'] = raw;
+  var chs = state.channels.map(function(c,ci){ return ci===i ? Object.assign({},c,upd) : c; });
+  api('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channels:chs})})
+    .then(function(){ toast('Kalibriert: ' + raw); document.getElementById('calib-'+i).textContent = 'Dry: '+chs[i].dry_adc+' | Wet: '+chs[i].wet_adc; });
+}
+
+// ── Einstellungen ────────────────────────────────
+function loadCfg() {
+  api('/api/config').then(function(d) {
+    cfg = d; plants = d.plants || [];
+    var w = d.wifi||{}, t = d.telegram||{}, m = d.mqtt||{}, wt = d.weather||{}, s = d.system||{};
+    document.getElementById('cfg-ssid').value = w.ssid||'';
+    document.getElementById('cfg-tg-en').checked = !!t.enabled;
+    document.getElementById('cfg-tg-tok').value = t.token||'';
+    document.getElementById('cfg-tg-chat').value = t.chat_id||'';
+    document.getElementById('cfg-mq-en').checked = !!m.enabled;
+    document.getElementById('cfg-mq-srv').value = m.server||'';
+    document.getElementById('cfg-mq-port').value = m.port||1883;
+    document.getElementById('cfg-mq-user').value = m.user||'';
+    document.getElementById('cfg-mq-topic').value = m.base_topic||'irrigation';
+    document.getElementById('cfg-wt-en').checked = !!wt.enabled;
+    document.getElementById('cfg-wt-rain').checked = !!wt.skip_on_rain;
+    document.getElementById('cfg-wt-frost').checked = !!wt.frost_protect;
+    document.getElementById('cfg-wt-frostt').value = wt.frost_threshold!=null?wt.frost_threshold:4;
+    document.getElementById('cfg-wt-key').value = wt.api_key||'';
+    document.getElementById('cfg-wt-city').value = wt.city||'';
+    var dht = d.sensor_dht||{};
+    document.getElementById('cfg-dht-en').checked = !!dht.enabled;
+    document.getElementById('cfg-dht-pin').value = dht.pin!=null?dht.pin:4;
+    document.getElementById('cfg-dht-type').value = dht.type||22;
+    document.getElementById('cfg-sys-ch').value = s.active_channels||1;
+    document.getElementById('cfg-sys-tz').value = s.timezone_offset||1;
+
+    // Log Kanal-Select befüllen
+    var sel = document.getElementById('log-ch-sel');
+    sel.innerHTML = (d.channels||[]).map(function(c,i){ return '<option value="'+i+'">'+c.name+'</option>'; }).join('');
+  });
+}
+
+function saveCfg(section) {
+  var payload = {};
+  if (section === 'wifi') {
+    payload.wifi = {ssid: document.getElementById('cfg-ssid').value};
+    var pw = document.getElementById('cfg-wpw').value;
+    if (pw) payload.wifi.password = pw;
+  } else if (section === 'telegram') {
+    payload.telegram = {
+      enabled: document.getElementById('cfg-tg-en').checked,
+      token:   document.getElementById('cfg-tg-tok').value,
+      chat_id: document.getElementById('cfg-tg-chat').value
+    };
+  } else if (section === 'mqtt') {
+    payload.mqtt = {
+      enabled:    document.getElementById('cfg-mq-en').checked,
+      server:     document.getElementById('cfg-mq-srv').value,
+      port:       parseInt(document.getElementById('cfg-mq-port').value),
+      user:       document.getElementById('cfg-mq-user').value,
+      password:   document.getElementById('cfg-mq-pw').value,
+      base_topic: document.getElementById('cfg-mq-topic').value
+    };
+  } else if (section === 'weather') {
+    payload.weather = {
+      enabled:        document.getElementById('cfg-wt-en').checked,
+      skip_on_rain:   document.getElementById('cfg-wt-rain').checked,
+      frost_protect:  document.getElementById('cfg-wt-frost').checked,
+      frost_threshold:parseFloat(document.getElementById('cfg-wt-frostt').value),
+      api_key:        document.getElementById('cfg-wt-key').value,
+      city:           document.getElementById('cfg-wt-city').value
+    };
+  } else if (section === 'dht') {
+    payload.sensor_dht = {
+      enabled: document.getElementById('cfg-dht-en').checked,
+      pin:     parseInt(document.getElementById('cfg-dht-pin').value),
+      type:    parseInt(document.getElementById('cfg-dht-type').value)
+    };
+  } else if (section === 'system') {
+    payload.system = {
+      active_channels:  parseInt(document.getElementById('cfg-sys-ch').value),
+      timezone_offset:  parseInt(document.getElementById('cfg-sys-tz').value)
+    };
+  }
+  api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)})
+    .then(function(r){ toast(r.ok ? 'Gespeichert ✓' : 'Fehler: '+r.err, r.ok); });
+}
+
+function reboot() {
+  if (!confirm('ESP32 neu starten?')) return;
+  api('/api/reboot').then(function(){ toast('Neustart...'); });
+}
+
+// ── OTA ──────────────────────────────────────────
+function uploadOta() {
+  var file = document.getElementById('ota-file').files[0];
+  if (!file) { toast('Keine Datei gewählt', false); return; }
+  var st = document.getElementById('ota-status');
+  st.textContent = 'Wird übertragen...';
+  var fd = new FormData();
+  fd.append('file', file, file.name);
+  fetch('/api/ota/upload', {method:'POST', body: fd})
+    .then(r => r.json())
+    .then(function(r){ st.textContent = r.ok ? '✓ '+r.file+' gespeichert. Neustart...' : '✗ '+r.err; toast(r.ok ? 'OTA OK' : 'Fehler', r.ok); })
+    .catch(function(){ st.textContent = '✗ Verbindungsfehler'; });
+}
+
+// ── Log ──────────────────────────────────────────
+function loadEvents() {
+  api('/api/events').then(function(d) {
+    var evts = d.events || [];
+    document.getElementById('log-events').innerHTML = evts.length
+      ? evts.slice().reverse().map(function(e){
+          return '<div class="ev-row"><span class="ev-ts">'+e.ts+'</span><span>'+e.msg+'</span></div>';
+        }).join('')
+      : '<div style="color:var(--m)">Keine Ereignisse.</div>';
+  });
+}
+
+function loadLog() {
+  var ch = document.getElementById('log-ch-sel').value;
+  api('/api/logs?ch=' + ch + '&limit=50').then(function(d) {
+    var r = d.readings || [];
+    document.getElementById('log-readings').innerHTML = r.length
+      ? r.slice().reverse().map(function(e){ return e.ts + ': <b>' + e.m + '%</b><br>'; }).join('')
+      : 'Keine Messwerte.';
+  });
+}
+
+// ── Zeitplan ─────────────────────────────────────
+var schedEntries = [];
+function loadSchedule() {
+  api('/api/schedule').then(function(d) {
+    document.getElementById('sched-en').checked = !!d.enabled;
+    schedEntries = d.entries || [];
+    renderSched();
+  });
+}
+function renderSched() {
+  var days = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+  var chOpts = (state.channels||[]).map(function(c,i){ return '<option value="'+i+'">'+c.name+'</option>'; }).join('');
+  document.getElementById('sched-list').innerHTML = schedEntries.length
+    ? schedEntries.map(function(e, idx) {
+        return '<div style="background:var(--s2);border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:8px">'
+          + '<div class="row"><select onchange="schedSet('+idx+',\'channel\',parseInt(this.value))" style="width:auto;flex:1">'
+          + chOpts.replace('value="'+e.channel+'"','value="'+e.channel+'" selected') + '</select>'
+          + '<button class="btn btn-r" onclick="delSched('+idx+')" style="padding:6px 10px">✕</button></div>'
+          + '<div style="display:flex;gap:8px;margin-top:8px">'
+          + '<input type="number" min="0" max="23" value="'+e.hour+'" onchange="schedSet('+idx+',\'hour\',parseInt(this.value))" style="width:70px"> :'
+          + '<input type="number" min="0" max="59" value="'+e.minute+'" onchange="schedSet('+idx+',\'minute\',parseInt(this.value))" style="width:70px">'
+          + '<input type="number" min="1" max="120" value="'+(e.duration_s||20)+'" onchange="schedSet('+idx+',\'duration_s\',parseInt(this.value))" style="width:80px" title="Sekunden"></div>'
+          + '<div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap">'
+          + days.map(function(d,di){
+              var on = (e.days||[]).indexOf(di) >= 0;
+              return '<span onclick="schedDay('+idx+','+di+')" style="cursor:pointer;padding:4px 8px;border-radius:5px;font-size:11px;background:'+(on?'var(--green)':'var(--bd)')+';color:'+(on?'#000':'var(--m)')+'">'+d+'</span>';
+            }).join('')
+          + '</div></div>';
+      }).join('')
+    : '<div style="color:var(--m);font-size:12px">Keine Einträge.</div>';
+}
+function addSchedEntry() { schedEntries.push({channel:0,hour:7,minute:0,duration_s:20,days:[0,1,2,3,4,5,6]}); renderSched(); }
+function delSched(i) { schedEntries.splice(i,1); renderSched(); }
+function schedSet(i,k,v) { schedEntries[i][k]=v; }
+function schedDay(i,d) {
+  var arr = schedEntries[i].days || [];
+  var p = arr.indexOf(d);
+  if (p>=0) arr.splice(p,1); else arr.push(d);
+  schedEntries[i].days = arr; renderSched();
+}
+function saveSchedule() {
+  var payload = {enabled: document.getElementById('sched-en').checked, entries: schedEntries};
+  api('/api/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    .then(function(r){ toast(r.ok?'Zeitplan gespeichert ✓':'Fehler',r.ok); });
+}
+
+// ── Statistik ────────────────────────────────────
+function loadStats() {
+  api('/api/stats').then(function(d) {
+    var s = d.stats || [];
+    document.getElementById('stats-body').innerHTML = s.length
+      ? s.map(function(c){
+          var mins = Math.floor(c.seconds/60), secs = c.seconds%60;
+          return '<div style="padding:10px 0;border-bottom:1px solid var(--bd)">'
+            + '<div style="font-weight:600;margin-bottom:4px">'+c.name+'</div>'
+            + '<div class="stat-row"><span>Gießvorgänge</span><span>'+c.waterings+'×</span></div>'
+            + '<div class="stat-row"><span>Gesamtlaufzeit</span><span>'+mins+'m '+secs+'s</span></div>'
+            + (c.liters!=null ? '<div class="stat-row"><span>Wassermenge</span><span>≈ '+c.liters+' L</span></div>' : '')
+            + '</div>';
+        }).join('')
+      : '<div style="color:var(--m)">Noch keine Daten.</div>';
+  });
+}
+
+
+// ══ SETUP-ASSISTENT ══════════════════════════════
+var WIZ_STEPS = 5;
+var wizStep = 0;
+var wizNumCh = 1;
+var wizCurCh = 0;          // welcher Kanal gerade eingerichtet wird
+var wizChannels = [];      // gesammelte Kanal-Configs
+var wizModules = {tg:false, mqtt:false, weather:false, dht:false};
+var wizLiveTimer = null;
+var wizDefaultPins = {sensor:[34,35,32,33,36,39,25,26], relay:[16,17,18,19,21,22,23,27]};
+
+function wizCheckFirstRun() {
+  // Prüft beim Laden, ob Setup nötig ist
+  api('/api/config').then(function(d) {
+    var done = d.system && d.system.setup_done;
+    if (!done) { wizStart(); }
+  }).catch(function(){});
+}
+
+function wizStart() {
+  wizStep = 0;
+  document.getElementById('wizard').classList.add('show');
+  wizRenderProgress();
+  wizShowStep(0);
+}
+
+function wizRenderProgress() {
+  var p = document.getElementById('wiz-progress');
+  var html = '';
+  for (var i=0;i<WIZ_STEPS;i++){
+    var cls = i<wizStep?'done':(i===wizStep?'active':'');
+    html += '<div class="wiz-dot '+cls+'"></div>';
+  }
+  p.innerHTML = html;
+}
+
+function wizShowStep(n) {
+  document.querySelectorAll('.wiz-step').forEach(function(s){ s.classList.remove('active'); });
+  var el = document.querySelector('.wiz-step[data-step="'+n+'"]');
+  if (el) el.classList.add('active');
+  wizStep = n;
+  wizRenderProgress();
+  // Live-Timer nur in Kanal-Schritt
+  if (n === 2) { wizStartLive(); } else { wizStopLive(); }
+}
+
+function wizNext() { if (wizStep < WIZ_STEPS-1) wizShowStep(wizStep+1); }
+function wizPrev() { if (wizStep > 0) wizShowStep(wizStep-1); }
+
+function wizSetChannels() {
+  wizNumCh = Math.max(1, Math.min(8, parseInt(document.getElementById('wiz-nch').value)||1));
+  wizCurCh = 0;
+  wizChannels = [];
+  wizLoadChannelForm(0);
+  wizShowStep(2);
+}
+
+function wizLoadChannelForm(i) {
+  document.getElementById('wiz-ch-title').textContent = 'Kanal ' + (i+1) + ' von ' + wizNumCh;
+  // Falls schon Daten gesammelt: wiederherstellen, sonst Defaults
+  var existing = wizChannels[i] || {};
+  document.getElementById('wiz-ch-name').value  = existing.name || ('Kanal ' + (i+1));
+  document.getElementById('wiz-ch-spin').value  = existing.sensor_pin != null ? existing.sensor_pin : wizDefaultPins.sensor[i];
+  document.getElementById('wiz-ch-rpin').value  = existing.relay_pin != null ? existing.relay_pin : wizDefaultPins.relay[i];
+  document.getElementById('wiz-ch-relay').value = existing.relay_active_low===false ? '0' : '1';
+  document.getElementById('wiz-ch-mode').value  = existing.water_mode || 'time';
+  document.getElementById('wiz-ch-auto').checked = existing.auto_mode !== false;
+  document.getElementById('wiz-calib-info').textContent = existing.dry_adc
+    ? ('Dry: ' + existing.dry_adc + ' | Wet: ' + existing.wet_adc)
+    : 'Sensor in Luft halten → Trocken. In Wasser → Nass.';
+  // Next-Button Text
+  document.getElementById('wiz-ch-next').textContent = (i+1 < wizNumCh) ? 'Nächster Kanal →' : 'Weiter →';
+}
+
+function wizCollectChannel(i) {
+  var prev = wizChannels[i] || {};
+  wizChannels[i] = {
+    id: i,
+    name: document.getElementById('wiz-ch-name').value || ('Kanal '+(i+1)),
+    enabled: true,
+    sensor_pin: parseInt(document.getElementById('wiz-ch-spin').value),
+    relay_pin: parseInt(document.getElementById('wiz-ch-rpin').value),
+    relay_active_low: document.getElementById('wiz-ch-relay').value === '1',
+    water_mode: document.getElementById('wiz-ch-mode').value,
+    auto_mode: document.getElementById('wiz-ch-auto').checked,
+    dry_adc: prev.dry_adc || 3500,
+    wet_adc: prev.wet_adc || 1500
+  };
+}
+
+function wizChannelNext() {
+  wizCollectChannel(wizCurCh);
+  if (wizCurCh + 1 < wizNumCh) {
+    wizCurCh++;
+    wizLoadChannelForm(wizCurCh);
+    wizStartLive();
+  } else {
+    wizStopLive();
+    wizShowStep(3);
+  }
+}
+
+function wizChannelBack() {
+  if (wizCurCh > 0) {
+    wizCollectChannel(wizCurCh);
+    wizCurCh--;
+    wizLoadChannelForm(wizCurCh);
+    wizStartLive();
+  } else {
+    wizStopLive();
+    wizShowStep(1);
+  }
+}
+
+// Live-ADC-Anzeige während der Kalibrierung
+function wizStartLive() {
+  wizStopLive();
+  wizPollLive();
+  wizLiveTimer = setInterval(wizPollLive, 1500);
+}
+function wizStopLive() {
+  if (wizLiveTimer) { clearInterval(wizLiveTimer); wizLiveTimer = null; }
+}
+function wizPollLive() {
+  // Live-Wert vom aktuell gewählten Sensor-Pin lesen
+  api('/api/raw/' + wizCurCh).then(function(d){
+    document.getElementById('wiz-live-pct').textContent = d.pct + ' %';
+    document.getElementById('wiz-live-raw').textContent = 'Rohwert: ' + d.raw;
+  }).catch(function(){
+    document.getElementById('wiz-live-raw').textContent = 'Sensor antwortet nicht';
+  });
+}
+
+function wizCalib(mode) {
+  // Erst Pins speichern (Kanal könnte noch nicht auf dem ESP existieren) → über config setzen
+  wizCollectChannel(wizCurCh);
+  // Live-Rohwert holen und als dry/wet speichern
+  api('/api/raw/' + wizCurCh).then(function(d){
+    if (mode === 'dry') wizChannels[wizCurCh].dry_adc = d.raw;
+    else                wizChannels[wizCurCh].wet_adc = d.raw;
+    var ch = wizChannels[wizCurCh];
+    document.getElementById('wiz-calib-info').textContent = 'Dry: ' + ch.dry_adc + ' | Wet: ' + ch.wet_adc;
+    toast(mode==='dry'?'Trocken gespeichert':'Nass gespeichert');
+  });
+}
+
+function wizToggle(key) {
+  wizModules[key] = !wizModules[key];
+  document.getElementById('wopt-'+key).classList.toggle('sel', wizModules[key]);
+}
+
+function wizFinish(skipped) {
+  wizStopLive();
+  // Wenn übersprungen: nur setup_done setzen
+  if (skipped) {
+    api('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({system:{setup_done:true}})})
+      .then(function(){ document.getElementById('wizard').classList.remove('show'); loadStatus(); });
+    return;
+  }
+  // Alle Kanäle + Module + active_channels + setup_done speichern
+  if (wizStep === 4) {
+    var payload = {
+      system: { active_channels: wizNumCh, setup_done: true },
+      channels: wizChannels
+    };
+    if (wizModules.weather) payload.weather = {enabled:true};
+    if (wizModules.tg)      payload.telegram = {enabled:false};   // Token kommt in Einstellungen
+    if (wizModules.mqtt)    payload.mqtt = {enabled:false};
+    if (wizModules.dht)     payload.sensor_dht = {enabled:true};
+    api('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+      .then(function(r){
+        document.getElementById('wizard').classList.remove('show');
+        toast('Setup abgeschlossen ✓');
+        loadStatus();
+        // Hinweis wenn Module noch Zugangsdaten brauchen
+        if (wizModules.tg || wizModules.mqtt || wizModules.weather) {
+          setTimeout(function(){ alert('Ausgewählte Module (Telegram/MQTT/Wetter) brauchen noch Zugangsdaten – bitte unter Einstellungen ergänzen.'); }, 600);
+        }
+      });
+  }
+}
+
+// Beim Laden prüfen ob Erststart
+wizCheckFirstRun();
+
+</script>
+</body></html>
