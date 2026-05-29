@@ -1,0 +1,15 @@
+# Smart Irrigation
+
+- [Home](Home)
+- [Installation](Installation)
+- [Hardware und Verdrahtung](Hardware-und-Verdrahtung)
+- [Ersteinrichtung](Ersteinrichtung)
+- [Weboberfläche](Weboberflaeche)
+- [Konfiguration](Konfiguration)
+- [REST-API](REST-API)
+- [Telegram](Telegram)
+- [MQTT und Home Assistant](MQTT-und-Home-Assistant)
+- [Wetter und Frostschutz](Wetter-und-Frostschutz)
+- [Lokaler Test ohne ESP32](Lokaler-Test-ohne-ESP32)
+- [Troubleshooting](Troubleshooting)
+- [Entwicklung](Entwicklung)
