@@ -7,7 +7,7 @@ import os
 import gc
 
 CONFIG_FILE   = '/config.json'
-CONFIG_VERSION = 3
+CONFIG_VERSION = 6
 
 SENSOR_PINS = [34, 35, 32, 33, 36, 39, 25, 26]
 RELAY_PINS  = [16, 17, 18, 19, 21, 22, 23, 27]
@@ -18,10 +18,19 @@ def _default_channel(i):
         'plant_idx': 0,
         'sensor_pin': SENSOR_PINS[i], 'relay_pin': RELAY_PINS[i],
         'relay_active_low': True,
-        'moisture_thresh': 40, 'water_duration': 30,
-        'min_interval_h': 6, 'auto_mode': True,
+        # Gießmodus: 'time' = X Sekunden, 'moisture' = bis Zielfeuchte
+        'water_mode': 'time',
+        'moisture_thresh': 40,    # unter diesem Wert wird gegossen
+        'moisture_target': 60,    # Zielfeuchte im moisture-Modus
+        'water_duration': 20,     # Sekunden im time-Modus (5V-Pumpe: kurz halten!)
+        'min_interval_h': 6,      # Mindestpause zwischen Gießvorgängen
+        'auto_mode': True,
         'dry_adc': 3500, 'wet_adc': 1500,
-        'total_waterings': 0
+        'total_waterings': 0,
+        'total_seconds': 0,       # kumulierte Pumpenlaufzeit (Statistik)
+        'flow_ml_min': 0,         # Fördermenge ml/min (0 = unbekannt, nur Sekunden)
+        'fertilize_days': 0,      # Dünger-Intervall in Tagen (0 = aus)
+        'last_fertilized': 0      # Timestamp letzte Düngung
     }
 
 DEFAULT = {
@@ -31,7 +40,8 @@ DEFAULT = {
         'hostname': 'smart-irrigation',
         'active_channels': 1,
         'timezone_offset': 1,
-        'ntp_server': 'pool.ntp.org'
+        'ntp_server': 'pool.ntp.org',
+        'setup_done': False
     },
     'water_level': {
         'enabled': False, 'trig_pin': 12, 'echo_pin': 14,
@@ -47,7 +57,15 @@ DEFAULT = {
     },
     'weather': {
         'enabled': False, 'api_key': '', 'city': 'Berlin', 'country': 'DE',
-        'skip_on_rain': True, 'hot_threshold': 28.0, 'cold_threshold': 8.0
+        'skip_on_rain': True, 'hot_threshold': 28.0,
+        'frost_protect': True, 'frost_threshold': 4.0
+    },
+    'sensor_dht': {
+        'enabled': False, 'pin': 4, 'type': 22   # 22=DHT22, 11=DHT11
+    },
+    'notify': {
+        'tank_low': True, 'pump_error': True,
+        'frost': True, 'fertilize': True, 'daily_report': False
     },
     'schedule': {
         'enabled': False,

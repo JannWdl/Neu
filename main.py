@@ -76,6 +76,13 @@ async def main():
             TelegramBot = load('telegram_bot', 'TelegramBot')
             tg = TelegramBot(irrig, ota)
             web.telegram = tg
+            # Benachrichtigungen aus irrigation.py über Telegram leiten
+            def _notify_cb(msg, _tg=tg):
+                try:
+                    asyncio.create_task(_tg.send(msg))
+                except Exception:
+                    pass
+            irrig.notify = _notify_cb
             tasks.append(tg.run())
             print(f'  Telegram aktiv | Heap: {gc.mem_free()}B')
         except Exception as e:

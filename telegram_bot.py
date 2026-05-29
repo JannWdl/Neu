@@ -100,6 +100,8 @@ class TelegramBot:
                 '/stop N – Pumpe stoppen\n'
                 '/stopall – Alle stoppen\n'
                 '/auto N – Automode umschalten\n'
+                '/stats – Verbrauchsstatistik\n'
+                '/duengen N – Kanal N als gedüngt markieren\n'
                 '/log – Ereignisse\n'
                 '_(Sende .py-Datei für OTA-Update)_'
             )
@@ -108,6 +110,10 @@ class TelegramBot:
             s = self.irrigation.status_dict()
             txt = f'*📊 Status*\nIP: {s["ip"]}  RSSI: {s["rssi"]}dBm\n'
             txt += f'Heap: {s["heap"]//1024}kB\n'
+            if s.get('frost_active'):
+                txt += '❄️ Frostschutz aktiv\n'
+            if s.get('dht', {}).get('temp') is not None:
+                txt += f'🌡 {s["dht"]["temp"]}°C / {s["dht"]["humidity"]}%\n'
             if s['water_level'] >= 0:
                 txt += f'Wasserstand: {s["water_level"]}%\n'
             for ch in s['channels']:
@@ -142,23 +148,25 @@ class TelegramBot:
             try:
                 ch_id = int(parts[1]) - 1
                 dur   = int(parts[2]) if len(parts) > 2 else None
-                ch    = self.irrigation.channels[ch_id]
-                ch.start_pump(dur)
-                await self.send(f'✅ Kanal {ch_id+1} gießt.')
+                started = self.irrigation.request_pump(ch_id, dur)
+                if started:
+                    await self.send(f'✅ Kanal {ch_id+1} gießt.')
+                else:
+                    await self.send(f'⏳ Kanal {ch_id+1} in Warteschlange (andere Pumpe läuft).')
             except Exception:
                 await self.send('❌ Nutzung: /giessen N [Sekunden]')
 
         elif cmd == '/stop':
             try:
                 ch_id = int(text.split()[1]) - 1
-                self.irrigation.channels[ch_id].stop_pump()
+                self.irrigation.stop_pump(ch_id)
                 await self.send(f'✅ Kanal {ch_id+1} gestoppt.')
             except Exception:
                 await self.send('❌ Nutzung: /stop N')
 
         elif cmd == '/stopall':
             for ch in self.irrigation.channels:
-                ch.stop_pump()
+                self.irrigation.stop_pump(ch.id)
             await self.send('✅ Alle Pumpen gestoppt.')
 
         elif cmd == '/auto':
@@ -171,6 +179,28 @@ class TelegramBot:
                 await self.send(f'✅ Kanal {ch_id+1} Auto: {"AN" if new else "AUS"}')
             except Exception:
                 await self.send('❌ Nutzung: /auto N')
+
+        elif cmd == '/stats':
+            txt = '*📈 Verbrauchsstatistik*\n'
+            for ch in self.irrigation.channels:
+                secs = ch.cfg.get('total_seconds', 0)
+                cnt  = ch.cfg.get('total_waterings', 0)
+                flow = ch.cfg.get('flow_ml_min', 0)
+                line = f'\n*{ch.cfg.get("name")}*\n'
+                line += f'  {cnt}× gegossen, {secs}s gesamt'
+                if flow:
+                    liters = secs / 60 * flow / 1000
+                    line += f'\n  ≈ {liters:.1f} L'
+                txt += line
+            await self.send(txt)
+
+        elif cmd == '/duengen':
+            try:
+                ch_id = int(text.split()[1]) - 1
+                self.irrigation.mark_fertilized(ch_id)
+                await self.send(f'🌿 Kanal {ch_id+1} als gedüngt markiert.')
+            except Exception:
+                await self.send('❌ Nutzung: /duengen N')
 
         elif cmd == '/log':
             evts = self.irrigation.get_events(8)

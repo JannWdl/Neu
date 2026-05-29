@@ -58,6 +58,9 @@ class Weather:
                 for item in f2.get('list', [])
             )
             self.data['rain_forecast'] = rain_forecast
+            # Frostschutz-Flag
+            frost_thr = cfg.get('frost_threshold', 4.0)
+            self.data['frost'] = self.data['temp'] <= frost_thr
             self.irrigation.weather    = self.data
             print(f'Wetter: {self.data["temp"]:.1f}°C, {self.data["description"]}')
         except Exception as e:

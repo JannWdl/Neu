@@ -17,17 +17,7 @@ from config import get_config
 from plants_db import all_as_list
 
 
-# ─────────────────────────────────────────────────────────────
-# Minimal HTML (nicht dynamisch bauen!)
-# ─────────────────────────────────────────────────────────────
-_HTML = """<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Smart Irrigation</title></head>
-<body style="font-family:system-ui;background:#0a0f1e;color:#fff">
-<h2>Smart Irrigation</h2>
-<p>System läuft</p>
-</body></html>"""
+# Index-HTML wird von /index.html auf dem Flash gestreamt
 
 
 # ─────────────────────────────────────────────────────────────
@@ -76,8 +66,15 @@ class WebServer:
             query = full_path.split("?")[1] if "?" in full_path else ""
 
             # ── 2. Routing ───────────────────────────────
-            status, ctype, data = await self._route(method, path, query, reader)
+            result = await self._route(method, path, query, reader)
 
+            # Datei-Streaming (kein RAM-Buffer): ("FILE", pfad, ctype)
+            if isinstance(result, tuple) and len(result) == 3 and result[0] == "FILE":
+                _, fpath, ctype = result
+                await self._stream_file(writer, fpath, ctype)
+                return
+
+            status, ctype, data = result
             if isinstance(data, str):
                 data = data.encode()
 
@@ -109,9 +106,9 @@ class WebServer:
         def json_resp(obj, status="200 OK"):
             return status, "application/json", json.dumps(obj)
 
-        # ── HTML ─────────────────────────────────────
+        # ── HTML (gestreamt von Flash, kein RAM-Buffer) ──
         if path == "/" or path == "/index.html":
-            return "200 OK", "text/html", _HTML
+            return ("FILE", "/index.html", "text/html; charset=utf-8")
 
         # ── Status ───────────────────────────────────
         if path == "/api/status":
@@ -132,15 +129,28 @@ class WebServer:
             except Exception as e:
                 return json_resp({"ok": False, "err": str(e)}, "400 Bad Request")
 
-        # ── Pumpen ───────────────────────────────────
+        # ── Pumpen (über Queue – nur EINE gleichzeitig) ──
         if path.startswith("/api/water/"):
             ch = int(path.split("/")[-1])
-            self.irrigation.channels[ch].start_pump()
-            return json_resp({"ok": True})
+            # optionale Dauer: /api/water/0?dur=15
+            dur = None
+            if "dur=" in query:
+                try:
+                    dur = int(dict(p.split("=") for p in query.split("&") if "=" in p).get("dur"))
+                except Exception:
+                    dur = None
+            started = self.irrigation.request_pump(ch, dur)
+            return json_resp({"ok": True, "started": started,
+                              "queued": not started})
 
         if path.startswith("/api/stop/"):
             ch = int(path.split("/")[-1])
-            self.irrigation.channels[ch].stop_pump()
+            self.irrigation.stop_pump(ch)
+            return json_resp({"ok": True})
+
+        if path == "/api/stopall":
+            for c in self.irrigation.channels:
+                self.irrigation.stop_pump(c.id)
             return json_resp({"ok": True})
 
         # ── Logs (leicht gehalten) ───────────────────
@@ -166,11 +176,83 @@ class WebServer:
             asyncio.create_task(reboot())
             return json_resp({"ok": True, "msg": "rebooting"})
 
-        # ── OTA STREAM UPLOAD (WICHTIG FIX) ──────────
+        # ── Zeitpläne ────────────────────────────────
+        if path == "/api/schedule" and method == "GET":
+            return json_resp(self.cfg.as_dict().get("schedule", {"enabled": False, "entries": []}))
+
+        if path == "/api/schedule" and method == "POST":
+            try:
+                body = await self._read_small_body(reader)
+                self.cfg.set("schedule", json.loads(body))
+                return json_resp({"ok": True})
+            except Exception as e:
+                return json_resp({"ok": False, "err": str(e)}, "400 Bad Request")
+
+        # ── Dünger markieren ─────────────────────────
+        if path.startswith("/api/fertilized/"):
+            ch = int(path.split("/")[-1])
+            self.irrigation.mark_fertilized(ch)
+            return json_resp({"ok": True})
+
+        # ── Live-ADC (für Kalibrierung im Assistenten) ──
+        if path.startswith("/api/raw/"):
+            ch = int(path.split("/")[-1])
+            if 0 <= ch < len(self.irrigation.channels):
+                c2 = self.irrigation.channels[ch]
+                raw = c2.read_adc()
+                return json_resp({"raw": raw, "pct": c2.adc_to_pct(raw)})
+            return json_resp({"raw": 0, "pct": 0})
+
+        # ── Statistik ────────────────────────────────
+        if path == "/api/stats":
+            stats = []
+            for c2 in self.irrigation.channels:
+                secs = c2.cfg.get("total_seconds", 0)
+                flow = c2.cfg.get("flow_ml_min", 0)
+                stats.append({
+                    "name": c2.cfg.get("name"),
+                    "waterings": c2.cfg.get("total_waterings", 0),
+                    "seconds": secs,
+                    "liters": round(secs / 60 * flow / 1000, 2) if flow else None
+                })
+            return json_resp({"stats": stats})
+
+        # ── OTA STREAM UPLOAD ────────────────────────
         if path == "/api/ota/upload" and method == "POST":
             return await self._ota_stream(reader)
 
         return "404 Not Found", "application/json", json.dumps({"error": "not found"})
+
+    # ─────────────────────────────────────────────
+    async def _stream_file(self, writer, path, ctype):
+        """Datei in 512-Byte-Chunks senden – nie mehr als 1 Chunk im RAM."""
+        try:
+            size = os.stat(path)[6]
+        except OSError:
+            body = b"Not found: " + path.encode()
+            writer.write(("HTTP/1.1 404 Not Found\r\nContent-Length: %d\r\n"
+                          "Connection: close\r\n\r\n" % len(body)).encode())
+            writer.write(body)
+            await writer.drain()
+            return
+        # Header mit bekannter Größe
+        writer.write((
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: %s\r\n"
+            "Content-Length: %d\r\n"
+            "Connection: close\r\n\r\n" % (ctype, size)
+        ).encode())
+        await writer.drain()
+        # Datei häppchenweise senden
+        gc.collect()
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(512)
+                if not chunk:
+                    break
+                writer.write(chunk)
+                await writer.drain()
+        gc.collect()
 
     # ─────────────────────────────────────────────
     async def _read_small_body(self, reader):

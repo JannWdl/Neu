@@ -34,8 +34,8 @@ class MQTTClient:
         base  = self.cfg.get('mqtt.base_topic', 'irrigation')
         for i, ch in enumerate(self.irrigation.channels):
             if topic == f'{base}/ch{i}/pump/command':
-                if msg == 'ON':  ch.start_pump()
-                if msg == 'OFF': ch.stop_pump()
+                if msg == 'ON':  self.irrigation.request_pump(i)
+                if msg == 'OFF': self.irrigation.stop_pump(i)
 
     def _ha_discovery(self, base):
         import network, json as _json
