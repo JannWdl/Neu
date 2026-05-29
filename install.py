@@ -162,6 +162,18 @@ def flash_firmware(port, bin_path):
 
 
 # ── 5. Projektdateien übertragen ─────────────────────────────────────
+def _interrupt(port):
+    """Schickt Ctrl-C an den ESP um laufenden Code zu stoppen."""
+    try:
+        import serial
+        with serial.Serial(port, 115200, timeout=1) as s:
+            s.write(b"\x03\x03")   # 2x Ctrl-C
+            time.sleep(0.4)
+    except Exception:
+        # kein pyserial: mpremote soft-reset versuchen
+        run([sys.executable, "-m", "mpremote", "connect", port, "soft-reset"], timeout=8)
+        time.sleep(0.5)
+
 def mp_cp(port, local, remote):
     rc, _, err = run(
         [sys.executable, "-m", "mpremote", "connect", port, "cp", local, f":{remote}"],
@@ -172,6 +184,9 @@ def mp_cp(port, local, remote):
 
 def upload_files(port, zip_path):
     print(c("\n📂  Übertrage Projektdateien...", "c"))
+    # ESP anhalten falls schon Code läuft (sonst blockiert die serielle Verbindung)
+    _interrupt(port)
+    time.sleep(0.5)
 
     with zipfile.ZipFile(zip_path) as zf:
         entries = sorted([
@@ -186,6 +201,15 @@ def upload_files(port, zip_path):
                 if (n.endswith(".py") or n.endswith(".html") or n.endswith(".md"))
                    and n.count("/") == 1 and n.startswith(prefix)
             ])
+
+        # boot.py und main.py ZULETZT übertragen – sie starten den Code,
+        # der sonst die serielle Verbindung blockiert (TransportError)
+        def _order(name):
+            base = os.path.basename(name)
+            if base == "main.py": return 2
+            if base == "boot.py": return 1
+            return 0
+        entries.sort(key=_order)
 
         total = len(entries)
         ok, fail = [], []
@@ -203,9 +227,13 @@ def upload_files(port, zip_path):
                     f.write(data)
 
                 success, err = mp_cp(port, local, fname)
-                if not success:    # einmal retry
-                    time.sleep(1.5)
+                # Bei TransportError: ESP stoppen und bis zu 2x erneut
+                attempts = 0
+                while not success and attempts < 2:
+                    _interrupt(port)
+                    time.sleep(0.8)
                     success, err = mp_cp(port, local, fname)
+                    attempts += 1
 
                 if success:
                     print(c(f"✓  {len(data):>6} B", "g"))
@@ -214,6 +242,8 @@ def upload_files(port, zip_path):
                     short = err.strip().splitlines()[-1] if err.strip() else "?"
                     print(c(f"✗  {short}", "r"))
                     fail.append(fname)
+
+                time.sleep(0.15)   # kurze Pause zwischen Dateien
 
     print(f"  [{'█'*20}] 100%  Fertig")
     return ok, fail
