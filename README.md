@@ -1,188 +1,414 @@
-# 🌱 Smart Irrigation – ESP32 MicroPython
+# 🌱 Smart Irrigation für ESP32
 
-Automatisches Bewässerungssystem für den ESP32. Konfiguration komplett über die Web-Oberfläche, Steuerung zusätzlich per Telegram und MQTT/Home Assistant.
+**Smart Irrigation** ist ein MicroPython-Projekt für den ESP32, mit dem sich bis zu acht Pflanzen- oder Bewässerungskanäle automatisch steuern lassen. Die Einrichtung läuft über eine Weboberfläche, zusätzlich sind Telegram, MQTT/Home Assistant, Wetterdaten, Zeitpläne, OTA-Updates und lokale Tests möglich.
 
----
-
-## Funktionsumfang
-
-- **Variabel 1–8 Kanäle** – kapazitive Feuchtigkeitssensoren + Relais-gesteuerte Pumpen
-- **Zwei Gießmodi pro Kanal** – zeitbasiert (X Sekunden) oder feuchtigkeitsbasiert (gießt bis Zielfeuchte erreicht ist)
-- **Pumpen-Warteschlange** – es läuft immer nur **eine** Pumpe gleichzeitig (wichtig bei 5V-Versorgung über den ESP32)
-- **Sicherheits-Limit** – keine Pumpe läuft länger als 120 Sekunden am Stück
-- **Web-UI** – Dashboard, Kanal-Einstellungen, Sensor-Kalibrierung, Logs, OTA – alles im Browser
-- **Telegram-Bot** – Fernsteuerung + OTA-Update per `.py`-Datei
-- **MQTT / Home Assistant** – Auto-Discovery für Sensoren und Pumpen
-- **Wetter (OpenWeatherMap)** – pausiert die Bewässerung bei Regen(-vorhersage)
-- **Setup-Portal** – AP-Modus zur WLAN-Ersteinrichtung
+Das Projekt richtet sich an Bastler, Schüler, Azubis und alle, die Pflanzen nicht mehr nach Bauchgefühl ertränken wollen. Technik übernimmt hier also endlich mal eine nützliche Aufgabe.
 
 ---
 
-## ⚠️ Wichtig: 5V-Pumpen über VIN
+## ✨ Funktionen
 
-Die Pumpen werden über den **VIN-Pin** versorgt (5V direkt von der USB-Buchse, vor dem Spannungsregler):
-
-- Besser als VCC/3V3, da der 3.3V-Regler nicht belastet wird.
-- Strom kommt aber weiterhin über USB-Kabel + Buchse + VIN-Diode des Boards (oft ~500 mA–1 A belastbar).
-- Mit einem kräftigen **2 A USB-Netzteil** läuft eine Pumpe problemlos.
-- Deshalb läuft systemseitig **nur eine Pumpe gleichzeitig** (Warteschlange), Gießdauer hart auf **120 s** begrenzt.
-- **Für mehrere Pumpen gleichzeitig:** separates 5V-Netzteil für die Pumpen, ESP32 schaltet nur die Relais (gemeinsame Masse verbinden).
-
-### Relais-Typ
-
-Die meisten günstigen Relais-Module sind **active-LOW** (Pin LOW = Relais an). Das ist der Standard. Falls eine Pumpe direkt beim Einschalten losläuft, ist es vermutlich active-HIGH – das lässt sich pro Kanal in der Konfiguration umstellen (`relay_active_low`).
-
----
-
-## Installation
-
-### Voraussetzungen
-- ESP32 mit MicroPython (v1.20+)
-- Am PC: `pip install mpremote`
-
-### Dateien übertragen
-
-1. `install.py` und `smart-irrigation.zip` in denselben Ordner legen
-2. Ausführen:
-   ```bash
-   python install.py COM8        # Windows
-   python install.py /dev/ttyUSB0  # Linux/Mac
-   ```
-3. Der Installer setzt den ESP32 zurück, überträgt alle Dateien und startet neu.
-
-### Ersteinrichtung (WLAN)
-
-Beim ersten Start ohne WLAN-Konfiguration öffnet der ESP32 einen Access Point:
-
-- **SSID:** `SmartIrrigation-Setup`
-- Verbinden → Browser → `http://192.168.4.1/`
-- WLAN-Daten eingeben → speichern → ESP32 startet neu und verbindet sich
-
-Danach ist die Oberfläche unter `http://smart-irrigation.local/` (oder der IP aus dem Serial-Monitor) erreichbar.
-
-### Setup-Assistent
-
-Beim allerersten Aufruf der Web-Oberfläche startet automatisch ein **Setup-Assistent**, der dich Schritt für Schritt durch die Einrichtung führt:
-
-1. Anzahl der Kanäle festlegen
-2. Jeden Kanal einzeln: Name, Sensor-/Relais-Pin, Relais-Typ, **Live-Kalibrierung** (Sensor in Luft → „Trocken", in Wasser → „Nass", der aktuelle Messwert wird in Echtzeit angezeigt), Gießmodus
-3. Zusatzmodule auswählen (Telegram, MQTT, Wetter, DHT-Sensor)
-4. Fertig – Zugangsdaten der Module danach unter Einstellungen ergänzen
-
-Der Assistent lässt sich jederzeit unter **Einstellungen → System → Setup-Assistent erneut starten** aufrufen.
+- **ESP32 + MicroPython** als kompakte Steuerzentrale
+- **1 bis 8 Bewässerungskanäle** mit kapazitiven Feuchtigkeitssensoren und Relais/Pumpen
+- **Web-Dashboard** für Status, manuelles Gießen, Einstellungen, Logs, Kalibrierung und OTA
+- **Setup-Assistent** für die erste Einrichtung direkt im Browser
+- **WLAN-Setup-Portal** über eigenen Access Point `SmartIrrigation-Setup`
+- **Sensor-Kalibrierung** pro Kanal mit Live-Rohwerten
+- **Zwei Gießmodi**:
+  - zeitbasiert: Pumpe läuft X Sekunden
+  - feuchtigkeitsbasiert: Pumpe läuft bis zur Ziel-Feuchte
+- **Pumpen-Warteschlange**: Es läuft immer nur eine Pumpe gleichzeitig
+- **Sicherheitslimit**: Maximale Pumpenlaufzeit pro Vorgang
+- **Zeitpläne** für feste Bewässerungszeiten
+- **Statistik** für Laufzeit, Gießvorgänge und geschätzte Wassermenge
+- **Telegram-Bot** für Status, Steuerung und OTA per `.py`-Datei
+- **MQTT/Home Assistant** inklusive Auto-Discovery
+- **OpenWeatherMap-Integration** für Regenpause und Frostschutz
+- **DHT11/DHT22-Unterstützung** für lokale Temperatur/Luftfeuchte
+- **Lokaler Testserver** zum Prüfen der Weboberfläche ohne ESP32
 
 ---
 
-## Bedienung
+## 🧰 Projektdateien
 
-### Web-UI
-- **Dashboard** – alle Kanäle auf einen Blick, anklicken zum Gießen/Stoppen
-- **Kanäle** – pro Kanal: Name, Aktiv, Automatik, Gießmodus, Dauer/Zielfeuchte, Schwelle, Pause, Sensor-Kalibrierung
-- **Einstellungen** – WLAN, Telegram, MQTT, Wetter, System, OTA-Upload
-- **Log** – Ereignisse und Feuchtigkeitsverlauf je Kanal
+| Datei | Zweck |
+|---|---|
+| `boot.py` | WLAN-Verbindung, NTP-Sync und Setup-Portal-Fallback |
+| `main.py` | Hauptprogramm und Task-Start für Webserver, Bewässerung, MQTT, Telegram usw. |
+| `config.py` | Konfiguration, Defaults und Speicherung in `/config.json` |
+| `irrigation.py` | Kernlogik für Sensoren, Pumpen, Automatik, Logs und Sicherheitslogik |
+| `webserver.py` | Async HTTP-Server mit Weboberfläche und REST-API |
+| `index.html` | Web-Dashboard und Setup-Assistent |
+| `setup_portal.py` | WLAN-Ersteinrichtung im AP-Modus |
+| `plants_db.py` | Pflanzendatenbank und Feuchte-Vorgaben |
+| `telegram_bot.py` | Telegram-Steuerung und OTA-Dateiupload |
+| `mqtt_client.py` | MQTT und Home-Assistant-Discovery |
+| `weather.py` | OpenWeatherMap-Abfrage |
+| `ota.py` | OTA-Updatefunktionen |
+| `display.py` | Optionale Display-Anbindung |
+| `install.py` | PC-Installer zum Flashen und Datei-Upload |
+| `local_test_server.py` | Lokaler Mock-Server für Browser-Tests ohne ESP32 |
+| `smart-irrigation.zip` | Paket mit den ESP32-Projektdateien für den Installer |
 
-### Sensor kalibrieren
-1. Sensor in die Luft halten → **Trocken** drücken
-2. Sensor in Wasser tauchen → **Nass** drücken
+---
 
-Erst danach zeigt der Kanal sinnvolle Prozentwerte.
+## ✅ Voraussetzungen
 
-### Telegram
-Bot bei [@BotFather](https://t.me/botfather) anlegen, Token + Chat-ID in den Einstellungen eintragen, aktivieren.
+### Hardware
+
+- ESP32, empfohlen: ESP32-WROOM
+- Kapazitive Bodenfeuchtigkeitssensoren
+- Relaismodul(e), typischerweise active-low
+- 5V-Pumpen oder Ventile
+- Geeignete 5V-Stromversorgung
+- Optional:
+  - DHT11/DHT22
+  - Ultraschallsensor für Tankfüllstand
+  - OLED/LCD-Display
+
+### Software am PC
+
+- Python 3.10 oder neuer
+- Internetzugang für den Firmware-Download
+- USB-Treiber für den ESP32, falls Windows wieder Windows-Dinge tut
+
+Der Installer prüft und installiert bei Bedarf:
+
+```bash
+pip install esptool mpremote
+```
+
+---
+
+## ⚠️ Stromversorgung und Sicherheit
+
+Das Projekt ist für kleine 5V-Pumpen ausgelegt. Der ESP32 ist kein Kraftwerk, auch wenn manche Bastelshops das gern so aussehen lassen.
+
+Wichtig:
+
+- Pumpen nicht über den 3,3V-Pin betreiben.
+- Kleine 5V-Pumpen können über VIN/5V versorgt werden, sofern Netzteil, Kabel und Board das schaffen.
+- Für mehrere oder stärkere Pumpen ein separates 5V-Netzteil verwenden.
+- GND von ESP32 und externem Pumpennetzteil verbinden.
+- Relaiskontakte sauber trennen und korrekt anschließen.
+- Wasser und Elektronik räumlich trennen.
+- Das System ist ein DIY-Projekt und keine zertifizierte Sicherheitssteuerung.
+
+Softwareseitig läuft immer nur eine Pumpe gleichzeitig. Dadurch wird die Stromlast reduziert und der ESP32 nicht komplett ins Elend geschickt.
+
+---
+
+## 🚀 Installation auf dem ESP32
+
+### 1. Repository herunterladen
+
+```bash
+git clone https://github.com/<user>/<repo>.git
+cd <repo>
+```
+
+Oder das ZIP von GitHub herunterladen und entpacken.
+
+### 2. ESP32 per USB anschließen
+
+Unter Windows ist der Port meist z. B. `COM8`, unter Linux/macOS meist `/dev/ttyUSB0` oder `/dev/ttyACM0`.
+
+### 3. Installer starten
+
+Windows:
+
+```bash
+python install.py COM8
+```
+
+Linux/macOS:
+
+```bash
+python install.py /dev/ttyUSB0
+```
+
+Der Installer erledigt in einem Durchgang:
+
+1. Prüfen/Installieren von `esptool` und `mpremote`
+2. Download der passenden MicroPython-Firmware
+3. Löschen des ESP32-Flashs
+4. Flashen von MicroPython
+5. Übertragen der Projektdateien aus `smart-irrigation.zip`
+
+### Nur Dateien neu übertragen
+
+Wenn MicroPython schon installiert ist:
+
+```bash
+python install.py COM8 --skip-flash
+```
+
+### Lokale Firmware verwenden
+
+```bash
+python install.py COM8 --bin firmware.bin
+```
+
+---
+
+## 📶 Ersteinrichtung per WLAN-Setup
+
+Wenn noch keine WLAN-Daten gespeichert sind, startet der ESP32 einen eigenen Access Point:
+
+```text
+SSID: SmartIrrigation-Setup
+Adresse: http://192.168.4.1/
+```
+
+Ablauf:
+
+1. Mit dem WLAN `SmartIrrigation-Setup` verbinden.
+2. Browser öffnen: `http://192.168.4.1/`
+3. WLAN-SSID und Passwort eintragen.
+4. Speichern.
+5. ESP32 startet neu und verbindet sich mit dem WLAN.
+
+Danach ist die Oberfläche erreichbar über:
+
+```text
+http://smart-irrigation.local/
+```
+
+Falls mDNS nicht aufgelöst wird, die IP-Adresse aus dem seriellen Monitor verwenden. Weil Namensauflösung natürlich genau dann versagt, wenn man sie zeigen will.
+
+---
+
+## 🖥️ Weboberfläche
+
+Die Weboberfläche läuft direkt auf dem ESP32 und wird aus `index.html` gestreamt.
+
+Bereiche:
+
+- **Dashboard**: Status, Feuchtigkeit, Pumpen, WLAN, Speicher
+- **Kanäle**: Pins, Namen, Modi, Auto-Bewässerung und Kalibrierung
+- **Zeitplan**: feste Gießzeiten pro Kanal
+- **Statistik**: Gießvorgänge, Laufzeiten und geschätzter Verbrauch
+- **Logs**: Ereignisse und Messwerte
+- **Einstellungen**: WLAN, Telegram, MQTT, Wetter, System und OTA
+
+---
+
+## 🌿 Kanal-Kalibrierung
+
+Jeder Feuchtigkeitssensor muss kalibriert werden.
+
+1. Sensor trocken/in Luft halten.
+2. In der Oberfläche **Trocken** übernehmen.
+3. Sensor in Wasser oder sehr feuchte Erde halten.
+4. **Nass** übernehmen.
+5. Kanal speichern.
+
+Ohne Kalibrierung sind Prozentwerte nur dekorative Zahlen mit Selbstbewusstsein.
+
+---
+
+## 🤖 Telegram-Bot
+
+Telegram ist optional.
+
+Einrichtung:
+
+1. Bei Telegram `@BotFather` öffnen.
+2. Neuen Bot erstellen.
+3. Bot-Token in der Weboberfläche eintragen.
+4. Eigene Chat-ID eintragen.
+5. Telegram aktivieren und speichern.
+
+Befehle:
 
 | Befehl | Funktion |
 |---|---|
-| `/status` | Überblick |
-| `/feuchte` | Feuchtigkeitswerte |
-| `/giessen N [T]` | Kanal N für T Sekunden gießen |
-| `/stop N` · `/stopall` | Pumpe(n) stoppen |
-| `/auto N` | Automatik umschalten |
-| `/wetter` · `/log` | Wetter / Ereignisse |
+| `/start` oder `/info` | Hilfe anzeigen |
+| `/status` | Systemstatus anzeigen |
+| `/feuchte` | Feuchtigkeitswerte anzeigen |
+| `/wetter` | Wetterstatus anzeigen |
+| `/giessen N [T]` | Kanal N optional T Sekunden gießen |
+| `/stop N` | Kanal N stoppen |
+| `/stopall` | Alle Pumpen stoppen |
+| `/auto N` | Automatik für Kanal N umschalten |
+| `/stats` | Verbrauchsstatistik anzeigen |
+| `/duengen N` | Kanal N als gedüngt markieren |
+| `/log` | Letzte Ereignisse anzeigen |
 
-OTA: `.py`-Datei an den Bot senden → wird übertragen, ESP32 startet neu.
+OTA per Telegram:
+
+- Eine `.py`-Datei an den Bot senden.
+- Datei wird auf den ESP32 übertragen.
+- ESP32 startet anschließend neu.
 
 ---
 
-## Standard-Pinbelegung
+## 🏠 MQTT und Home Assistant
 
-| Kanal | Sensor (ADC) | Relais |
+Das Projekt kann per MQTT mit Home Assistant verbunden werden.
+
+Standard-Basis-Topic:
+
+```text
+irrigation
+```
+
+Beispiele:
+
+```text
+irrigation/ch0/moisture
+irrigation/ch0/pump/state
+irrigation/ch0/pump/command
+irrigation/water_level
+irrigation/weather/temp
+```
+
+Home Assistant Discovery wird automatisch veröffentlicht, sofern MQTT aktiviert und korrekt konfiguriert ist.
+
+Pumpensteuerung per MQTT:
+
+```text
+Topic: irrigation/ch0/pump/command
+Payload: ON oder OFF
+```
+
+---
+
+## 🌦️ Wetter, Regenpause und Frostschutz
+
+Über OpenWeatherMap kann das System Wetterdaten abrufen.
+
+Funktionen:
+
+- aktuelle Temperatur
+- Luftfeuchtigkeit
+- Regen der letzten Stunde
+- Regenvorhersage
+- automatische Bewässerungspause bei Regen
+- Frostschutz unter einstellbarer Temperaturgrenze
+
+Benötigt wird ein API-Key von OpenWeatherMap.
+
+---
+
+## 🧪 Lokal ohne ESP32 testen
+
+Die Weboberfläche kann teilweise lokal getestet werden.
+
+```bash
+python local_test_server.py
+```
+
+Danach im Browser öffnen:
+
+```text
+http://127.0.0.1:8080/
+```
+
+Damit testbar:
+
+- Laden der Weboberfläche
+- Setup-Assistent
+- Dashboard-Navigation
+- Speichern von Konfigurationen
+- API-Aufrufe gegen Mock-Daten
+
+Nicht testbar ohne ESP32:
+
+- echte ADC-Sensorwerte
+- Pumpen/Relais
+- WLAN-AP-Modus
+- MicroPython-spezifische Speichergrenzen
+
+---
+
+## 🔌 REST-API
+
+Auszug der wichtigsten Endpunkte:
+
+| Methode | Pfad | Funktion |
 |---|---|---|
-| 1–8 | 34, 35, 32, 33, 36, 39, 25, 26 | 16, 17, 18, 19, 21, 22, 23, 27 |
-
-Anpassbar in `config.py` (`SENSOR_PINS` / `RELAY_PINS`). ADC-Pins müssen ADC1-fähig sein (GPIO 32–39), da ADC2 bei aktivem WLAN nicht nutzbar ist.
-
----
-
-## Dateien
-
-| Datei | Funktion |
-|---|---|
-| `boot.py` | WLAN, NTP, Setup-Portal-Fallback |
-| `main.py` | Event-Loop, lädt aktive Module |
-| `config.py` | Konfiguration (`/config.json`) |
-| `irrigation.py` | Sensoren, Pumpen-Queue, Automatik, Logs |
-| `webserver.py` | Async HTTP-Server + REST-API |
-| `index.html` | Web-Oberfläche (vom Flash gestreamt) |
-| `telegram_bot.py` | Telegram-Bot |
-| `mqtt_client.py` | MQTT + Home Assistant |
-| `weather.py` | OpenWeatherMap |
-| `ota.py` | OTA-Updates |
-| `display.py` | OLED/LCD (optional) |
-| `plants_db.py` | Pflanzendatenbank |
-| `setup_portal.py` | WLAN-Einrichtungs-AP |
-| `install.py` | PC-Installer (mpremote) |
+| `GET` | `/` oder `/index.html` | Weboberfläche |
+| `GET` | `/api/status` | Systemstatus |
+| `GET` | `/api/config` | Konfiguration lesen |
+| `POST` | `/api/config` | Konfiguration speichern |
+| `GET/POST` | `/api/water/<id>` | Kanal starten |
+| `GET/POST` | `/api/stop/<id>` | Kanal stoppen |
+| `GET/POST` | `/api/stopall` | Alle Pumpen stoppen |
+| `GET` | `/api/logs?ch=0&limit=30` | Messwerte eines Kanals |
+| `GET` | `/api/events` | Ereignislog |
+| `GET` | `/api/stats` | Statistik |
+| `GET` | `/api/raw/<id>` | Live-ADC-Wert für Kalibrierung |
+| `GET` | `/api/schedule` | Zeitplan lesen |
+| `POST` | `/api/schedule` | Zeitplan speichern |
+| `POST` | `/api/ota/upload` | OTA-Dateiupload |
+| `GET/POST` | `/api/reboot` | ESP32 neu starten |
 
 ---
 
-## Erweiterte Funktionen
+## 🛠️ Troubleshooting
 
-### Zeitpläne
-Reiter **Zeitplan** im Web-UI. Pro Eintrag: Kanal, Uhrzeit, Dauer und Wochentage. Läuft zusätzlich zur Feuchtigkeits-Automatik; Frostschutz greift auch hier.
+### ESP32 wird nicht gefunden
 
-### Verbrauchs-Statistik
-Reiter **Statistik**: Gießvorgänge und Gesamtlaufzeit je Kanal. Wenn du die **Fördermenge** deiner Pumpe (ml/min) im Kanal hinterlegst, wird zusätzlich die Wassermenge in Litern geschätzt.
+- Richtigen COM-Port prüfen.
+- USB-Kabel tauschen, manche Kabel laden nur und übertragen keine Daten.
+- Treiber für CH340/CP210x installieren.
+- Beim Flashen ggf. BOOT-Taste gedrückt halten.
 
-### Frostschutz
-Nutzt die Wetterdaten. Unter der Frost-Schwelle (Standard 4 °C) wird nicht gegossen – egal ob Automatik oder Zeitplan. Aktivierbar unter Einstellungen → Wetter.
+### Weboberfläche lädt nicht
 
-### Dünger-Erinnerung
-Pro Kanal ein Intervall in Tagen einstellbar. Ist es fällig, kommt eine Telegram-Nachricht. Mit „Jetzt als gedüngt markieren" (UI) oder `/duengen N` (Telegram) zurücksetzen.
+- IP-Adresse im Serial-Monitor prüfen.
+- `http://smart-irrigation.local/` nur nutzen, wenn mDNS funktioniert.
+- Alternativ direkt per IP öffnen.
 
-### Lokaler Temperatursensor (DHT22/DHT11)
-Optionaler DHT-Sensor für lokale Temperatur/Luftfeuchte (ergänzt die Wetter-API). Pin in den Einstellungen festlegen.
+### Buttons reagieren nicht
 
-### Benachrichtigungen (Telegram)
-Automatische Push-Nachrichten bei: leerem Tank, Frostschutz aktiv, Dünger fällig. Einzeln in der `notify`-Konfiguration abschaltbar.
+- Browser-Konsole öffnen.
+- Netzwerk-Tab prüfen.
+- Fehler bei `/api/config` deuten meist auf ein API-/JSON-Problem hin.
+- Nach Änderungen Dateien neu übertragen:
+
+```bash
+python install.py COM8 --skip-flash
+```
+
+### `undefined dBm` oder `NaN kB`
+
+Bei lokalem Testserver fehlen dann Mock-Werte für `rssi` oder `heap`. Auf dem ESP32 sollten diese Werte aus `/api/status` kommen.
+
+### Sensorwerte sind falsch herum
+
+Trocken-/Nass-Kalibrierung prüfen. Kapazitive Sensoren liefern je nach Modell unterschiedliche Rohwerte. Willkommen in der Welt billiger Sensoren, wo Standards eher eine grobe Idee sind.
+
+### Pumpe läuft direkt beim Start
+
+Relais-Typ prüfen:
+
+- active-low: LOW = an
+- active-high: HIGH = an
+
+In der Kanalkonfiguration `relay_active_low` passend setzen.
 
 ---
 
-## Sprachsteuerung & E-Mail (über Home Assistant)
+## 🧱 Roadmap-Ideen
 
-Der ESP32 kann Alexa/Google und zuverlässiges E-Mailing nicht sinnvoll selbst – das läuft sauberer über Home Assistant, das du via MQTT ohnehin anbinden kannst:
-
-- **MQTT aktivieren** (Einstellungen → MQTT) mit den Daten deines HA-MQTT-Brokers.
-- Die Kanäle erscheinen per **Auto-Discovery** automatisch in Home Assistant (Sensoren + Pumpen-Schalter).
-- **Alexa/Google:** In HA die Cloud-Integration (Nabu Casa) oder die jeweilige Skill/Action einrichten – die Entities sind dann sprachsteuerbar („Alexa, schalte Kanal 1 ein").
-- **E-Mail-Reports:** Eine HA-Automatisierung mit dem `notify.smtp`-Dienst auf Basis der MQTT-Sensoren bauen. Das ist robuster als SMTP direkt auf dem ESP32.
+- Import/Export der Konfiguration
+- Mehrsprachige Oberfläche
+- Diagramme für Feuchtigkeitsverlauf
+- Bessere OTA-Versionierung
+- Optionale Authentifizierung für die Weboberfläche
+- Docker-basierter lokaler Testmodus
+- Gehäuse- und Verdrahtungsdokumentation mit Bildern
 
 ---
 
-## Changelog
+## 📄 Lizenz
 
-### v5.0
-- Zeitpläne (feste Gießzeiten je Kanal/Wochentag)
-- Verbrauchs-Statistik (Laufzeit, optional Liter)
-- Frostschutz auf Basis der Wetterdaten
-- Dünger-Erinnerung pro Kanal
-- Telegram-Benachrichtigungen (Tank, Frost, Dünger)
-- Lokaler DHT22/DHT11-Sensor
-- Doku: Alexa/Google & E-Mail über Home Assistant
-- Komplett-Installer (Flash + Upload in einem Skript)
+Noch keine Lizenz festgelegt. Für GitHub wäre z. B. MIT sinnvoll, wenn das Projekt offen weiterverwendet werden darf.
 
-### v4.0
-- Pumpen-Warteschlange: nur eine Pumpe gleichzeitig
-- Hartes Laufzeit-Limit (120 s) pro Gießvorgang
-- Zwei Gießmodi pro Kanal (zeit-/feuchtigkeitsbasiert)
-- Komplett überarbeitete Web-Oberfläche
-- Setup-Portal als echtes HTML-Formular
-- Fix: Telegram-Token blockierte Webserver nicht mehr
+---
+
+## Haftungsausschluss
+
+Dieses Projekt schaltet Wasser, Strom und Elektronik. Prüfe Verdrahtung, Netzteile und Relais sorgfältig. Der Einsatz erfolgt auf eigenes Risiko. Das System ist nicht für sicherheitskritische Anwendungen geeignet.
