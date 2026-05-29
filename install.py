@@ -7,7 +7,7 @@ Macht alles in einem Durchgang:
   2. Lädt MicroPython-Firmware (oder nutzt lokale .bin)
   3. Löscht den ESP32-Flash komplett
   4. Flasht MicroPython
-  5. Überträgt alle Projektdateien aus smart-irrigation.zip
+  5. Überträgt die Projektdateien aus dem Ordner von install.py
 
 Aufruf:
   python install.py                         (interaktiv)
@@ -22,7 +22,6 @@ Voraussetzungen werden automatisch nachinstalliert:
 import sys
 import os
 import subprocess
-import zipfile
 import tempfile
 import time
 import json
@@ -32,11 +31,19 @@ import urllib.request
 CHIP        = "esp32"
 FLASH_ADDR  = "0x1000"      # Standard-ESP32 (WROOM): Bootloader-Offset
 BAUD        = "460800"
-ZIPNAME     = "smart-irrigation.zip"
 MP_BOARD    = "ESP32_GENERIC"
 MP_DL_BASE  = "https://micropython.org/resources/firmware/"
 # Fallback-Firmware falls die Versions-Erkennung scheitert:
 MP_FALLBACK = "ESP32_GENERIC-20251209-v1.27.0.bin"
+
+# Dateien, die auf den ESP32 sollen. Der Installer zieht NICHT mehr aus smart-irrigation.zip.
+# Quelle ist der Ordner, in dem diese install.py liegt. Weil versteckte ZIP-in-ZIP-Magie
+# exakt die Sorte Chaos ist, die später jemand Martin nennt.
+UPLOAD_EXT = (".py", ".html", ".json")
+UPLOAD_EXCLUDE = {
+    "install.py", "local_test_server.py", "github_upload.py",
+    "README.md", "GITHUB_DESCRIPTION.md", "local-test-config.json"
+}
 
 
 def c(txt, color):
@@ -182,71 +189,70 @@ def mp_cp(port, local, remote):
     return rc == 0, err
 
 
-def upload_files(port, zip_path):
-    print(c("\n📂  Übertrage Projektdateien...", "c"))
-    # ESP anhalten falls schon Code läuft (sonst blockiert die serielle Verbindung)
+def collect_project_files(source_dir):
+    """Sammelt ESP32-Projektdateien direkt aus dem install.py-Ordner."""
+    files = []
+    for name in os.listdir(source_dir):
+        path = os.path.join(source_dir, name)
+        if not os.path.isfile(path):
+            continue
+        if name in UPLOAD_EXCLUDE:
+            continue
+        if name.endswith(UPLOAD_EXT):
+            files.append(name)
+
+    # boot.py ganz zuletzt: sobald der ESP danach startet, kann main.py die serielle Verbindung blockieren.
+    def _order(name):
+        if name == "boot.py": return 3
+        if name == "main.py": return 2
+        if name == "webserver.py": return 1
+        return 0
+    files.sort(key=_order)
+    return files
+
+
+def upload_files(port, source_dir):
+    print(c("\n📂  Übertrage Projektdateien aus dem lokalen Ordner...", "c"))
+    print(c(f"    Quelle: {source_dir}", "d"))
     _interrupt(port)
     time.sleep(0.5)
 
-    with zipfile.ZipFile(zip_path) as zf:
-        entries = sorted([
-            n for n in zf.namelist()
-            if (n.endswith(".py") or n.endswith(".html") or n.endswith(".md"))
-               and "/" not in n.rstrip("/")
-        ])
-        if not entries:    # GitHub-ZIP mit Unterordner
-            prefix = zf.namelist()[0].split("/")[0] + "/"
-            entries = sorted([
-                n for n in zf.namelist()
-                if (n.endswith(".py") or n.endswith(".html") or n.endswith(".md"))
-                   and n.count("/") == 1 and n.startswith(prefix)
-            ])
-          
-        # boot.py als ALLERLETZTES übertragen – sobald diese Datei existiert,
-        # startet der ESP32 ggf. Code, der die serielle Verbindung blockiert.
-        def _order(name):
-            base = os.path.basename(name)
-            if base == "boot.py": return 2  # Höchster Wert = ganz am Schluss
-            if base == "main.py": return 1
-            return 0
-        entries.sort(key=_order)
+    entries = collect_project_files(source_dir)
+    if not entries:
+        print(c("❌  Keine Projektdateien gefunden.", "r"))
+        return [], ["Keine Dateien"]
 
-        total = len(entries)
-        ok, fail = [], []
+    total = len(entries)
+    ok, fail = [], []
 
-        with tempfile.TemporaryDirectory() as tmp:
-            for i, entry in enumerate(entries):
-                fname = os.path.basename(entry)
-                pct   = int(i / total * 100)
-                bar   = ("█" * (pct // 5)).ljust(20)
-                print(f"  [{bar}] {pct:3d}%  {fname:<22}", end="  ", flush=True)
+    for i, fname in enumerate(entries):
+        local = os.path.join(source_dir, fname)
+        pct   = int(i / total * 100)
+        bar   = ("█" * (pct // 5)).ljust(20)
+        print(f"  [{bar}] {pct:3d}%  {fname:<22}", end="  ", flush=True)
 
-                data  = zf.read(entry)
-                local = os.path.join(tmp, fname)
-                with open(local, "wb") as f:
-                    f.write(data)
+        success, err = mp_cp(port, local, fname)
+        attempts = 0
+        while not success and attempts < 2:
+            _interrupt(port)
+            time.sleep(0.8)
+            success, err = mp_cp(port, local, fname)
+            attempts += 1
 
-                success, err = mp_cp(port, local, fname)
-                # Bei TransportError: ESP stoppen und bis zu 2x erneut
-                attempts = 0
-                while not success and attempts < 2:
-                    _interrupt(port)
-                    time.sleep(0.8)
-                    success, err = mp_cp(port, local, fname)
-                    attempts += 1
+        if success:
+            size = os.path.getsize(local)
+            print(c(f"✓  {size:>6} B", "g"))
+            ok.append(fname)
+        else:
+            short = err.strip().splitlines()[-1] if err.strip() else "?"
+            print(c(f"✗  {short}", "r"))
+            fail.append(fname)
 
-                if success:
-                    print(c(f"✓  {len(data):>6} B", "g"))
-                    ok.append(fname)
-                else:
-                    short = err.strip().splitlines()[-1] if err.strip() else "?"
-                    print(c(f"✗  {short}", "r"))
-                    fail.append(fname)
-
-                time.sleep(0.15)   # kurze Pause zwischen Dateien
+        time.sleep(0.15)
 
     print(f"  [{'█'*20}] 100%  Fertig")
     return ok, fail
+
 
 
 # ── Reset ────────────────────────────────────────────────────────────
@@ -276,16 +282,9 @@ def main():
     print(c("  🌱 Smart Irrigation - ESP32 Komplett-Installer", "g"))
     print("=" * 54)
 
-    # ZIP finden
+    # Projektordner finden
     here = os.path.dirname(os.path.abspath(__file__))
-    zip_path = None
-    for p in (os.path.join(here, ZIPNAME), ZIPNAME):
-        if os.path.exists(p):
-            zip_path = os.path.abspath(p); break
-    if not zip_path:
-        print(c(f"\n❌  {ZIPNAME} nicht gefunden (gleicher Ordner wie install.py).", "r"))
-        sys.exit(1)
-    print(f"\n📦  {os.path.basename(zip_path)}")
+    print(f"\n📁  Projektordner: {here}")
 
     # Tools
     print(c("\n🔧  Prüfe Werkzeuge (esptool, mpremote)...", "c"))
@@ -316,7 +315,7 @@ def main():
         print(c("\n⏭   Flashen übersprungen (--skip-flash)", "d"))
 
     # Dateien
-    ok, fail = upload_files(port, zip_path)
+    ok, fail = upload_files(port, here)
 
     # Abschluss
     print()

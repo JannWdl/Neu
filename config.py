@@ -7,7 +7,7 @@ import os
 import gc
 
 CONFIG_FILE   = '/config.json'
-CONFIG_VERSION = 6
+CONFIG_VERSION = 7
 
 SENSOR_PINS = [34, 35, 32, 33, 36, 39, 25, 26]
 RELAY_PINS  = [16, 17, 18, 19, 21, 22, 23, 27]
@@ -65,7 +65,8 @@ DEFAULT = {
     },
     'notify': {
         'tank_low': True, 'pump_error': True,
-        'frost': True, 'fertilize': True, 'daily_report': False
+        'frost': True, 'fertilize': True, 'daily_report': False,
+        'water_start': True, 'water_stop': True, 'system': True
     },
     'schedule': {
         'enabled': False,

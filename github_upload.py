@@ -25,7 +25,7 @@ FILES = [
     "boot.py", "main.py", "config.py", "irrigation.py", "webserver.py",
     "index.html", "telegram_bot.py", "mqtt_client.py", "weather.py",
     "ota.py", "display.py", "plants_db.py", "setup_portal.py",
-    "README.md", "install.py", "smart-irrigation.zip",
+    "README.md", "install.py", "local_test_server.py",
 ]
 
 
@@ -61,7 +61,7 @@ def main():
 
     # Dateien hinzufügen
     run(["git", "add"] + present)
-    run(["git", "commit", "-m", "Smart Irrigation v5.0 – komplettes System"])
+    run(["git", "commit", "-m", "Smart Irrigation Update – Telegram Wetter MQTT Installer"])
 
     # Push
     print("\n⬆   Pushe zu GitHub...")

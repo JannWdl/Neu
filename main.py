@@ -95,6 +95,7 @@ async def main():
         try:
             MQTTClient = load('mqtt_client', 'MQTTClient')
             mqtt = MQTTClient(irrig)
+            web.mqtt = mqtt
             tasks.append(mqtt.run())
             print(f'  MQTT aktiv | Heap: {gc.mem_free()}B')
         except Exception as e:
@@ -132,7 +133,7 @@ async def main():
     print(f'Webinterface aktiv unter: http://{_sta.ifconfig()[0]}/')
 
     # Startnachricht für Telegram (verzögert, um Netzwerklast zu splitten)
-    if tg:
+    if tg and cfg.get('notify.system', True):
         async def _tg_start():
             await asyncio.sleep(3)
             try:

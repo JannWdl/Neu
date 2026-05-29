@@ -48,7 +48,6 @@ Das Projekt richtet sich an Bastler, Schüler, Azubis und alle, die Pflanzen nic
 | `display.py` | Optionale Display-Anbindung |
 | `install.py` | PC-Installer zum Flashen und Datei-Upload |
 | `local_test_server.py` | Lokaler Mock-Server für Browser-Tests ohne ESP32 |
-| `smart-irrigation.zip` | Paket mit den ESP32-Projektdateien für den Installer |
 
 ---
 
@@ -133,7 +132,9 @@ Der Installer erledigt in einem Durchgang:
 2. Download der passenden MicroPython-Firmware
 3. Löschen des ESP32-Flashs
 4. Flashen von MicroPython
-5. Übertragen der Projektdateien aus `smart-irrigation.zip`
+5. Übertragen der Projektdateien direkt aus dem Ordner, in dem `install.py` liegt
+
+Der Installer verwendet **nicht** mehr `smart-irrigation.zip` als Quelle. Er kopiert die Projektdateien direkt aus dem lokalen Projektordner. Änderungen an `webserver.py`, `index.html`, `weather.py`, `mqtt_client.py` oder `telegram_bot.py` werden dadurch beim nächsten `--skip-flash` direkt übertragen.
 
 ### Nur Dateien neu übertragen
 
@@ -218,6 +219,9 @@ Einrichtung:
 3. Bot-Token in der Weboberfläche eintragen.
 4. Eigene Chat-ID eintragen.
 5. Telegram aktivieren und speichern.
+6. In der Weboberfläche **Testnachricht senden** anklicken.
+
+Der ESP32 kann Status-, Frost-, Wasserstands-, Dünger- und Bewässerungsnachrichten per Telegram senden. Zusätzlich gibt es eine Startmeldung, sofern Systembenachrichtigungen aktiviert sind.
 
 Befehle:
 
@@ -263,7 +267,7 @@ irrigation/water_level
 irrigation/weather/temp
 ```
 
-Home Assistant Discovery wird automatisch veröffentlicht, sofern MQTT aktiviert und korrekt konfiguriert ist.
+Home Assistant Discovery wird automatisch veröffentlicht, sofern MQTT aktiviert und korrekt konfiguriert ist. In der Weboberfläche kann die MQTT-Verbindung über **Verbindung prüfen** getestet werden. Dabei wird testweise auf `<base_topic>/test` veröffentlicht.
 
 Pumpensteuerung per MQTT:
 
@@ -287,7 +291,7 @@ Funktionen:
 - automatische Bewässerungspause bei Regen
 - Frostschutz unter einstellbarer Temperaturgrenze
 
-Benötigt wird ein API-Key von OpenWeatherMap.
+Benötigt wird ein API-Key von OpenWeatherMap. Sobald die Wetterfunktion aktiviert ist und ein API-Key hinterlegt wurde, zeigt das Dashboard eine Wetterübersicht. Über **Wetter jetzt abrufen** kann die Abfrage direkt getestet werden.
 
 ---
 
@@ -391,14 +395,36 @@ In der Kanalkonfiguration `relay_active_low` passend setzen.
 
 ---
 
-## 🧱 Roadmap-Ideen
+## 🧱 Roadmap / geplante Funktionen
 
-- Import/Export der Konfiguration
+Einige Funktionen hängen von Speicherplatz, Stabilität und verfügbarer Rechenleistung des ESP32 ab. Der ESP32 ist kein Rechenzentrum, sondern eher ein sehr motivierter Taschenrechner mit WLAN. Neue Funktionen müssen deshalb ressourcenschonend umgesetzt werden.
+
+Kurzfristig geplant oder bereits vorbereitet:
+
+- Telegram-Testnachrichten und bessere Telegram-Systemmeldungen
+- Wetterübersicht im Dashboard, sobald ein OpenWeatherMap-API-Key hinterlegt ist
+- MQTT-Verbindungsprüfung über die Weboberfläche
+- Verbesserte Fehleranzeige im Web-Dashboard
+- Verbesserte OTA-Updatefunktion über das Web-Dashboard
+- OTA-Update über den Telegram-Bot
+- GitHub-Prüfung auf verfügbare Updates
+
+Mittelfristig geplant:
+
+- Bewässerungsprofile als Datenbank
+- Automatische Bewässerung abhängig von Wetterdaten
+- Erweiterte MQTT-Autodiscovery für Home Assistant
+- Verlaufsgrafiken für Feuchtigkeit, Temperatur und Bewässerungen
+- Backup der Konfiguration vor Updates
+- Revert/Rollback, falls ein Update fehlschlägt
+
+Weitere Ideen:
+
+- Dark Mode
+- Mobile-optimierte Ansicht
+- Zeitgesteuerte Wartungsbenachrichtigungen
 - Mehrsprachige Oberfläche
-- Diagramme für Feuchtigkeitsverlauf
-- Bessere OTA-Versionierung
 - Optionale Authentifizierung für die Weboberfläche
-- Docker-basierter lokaler Testmodus
 - Gehäuse- und Verdrahtungsdokumentation mit Bildern
 
 ---

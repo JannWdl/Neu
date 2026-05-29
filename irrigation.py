@@ -159,6 +159,7 @@ class Irrigation:
         self.cfg             = get_config()
         self.channels        = []
         self.weather         = {}
+        self.weather_status  = {'configured': False, 'ok': False, 'err': ''}
         self.water_level_pct = -1
         self._pump_queue     = []   # Kanal-IDs die gießen wollen
         self._active_pump    = None # aktuell laufender Kanal (nur EINER!)
@@ -225,15 +226,21 @@ class Irrigation:
             self._active_pump = ch_id
             ch.start_pump(duration)
             self._log_event(ch_id, 'water_start', f'Manuell/Auto: {ch.moisture_pct}%')
+            if self.cfg.get('notify.water_start', True):
+                self._notify(f'💧 {ch.cfg.get("name", "Kanal")} gestartet ({ch.pump_duration}s, Feuchte {ch.moisture_pct}%).')
             return True
-        if ch_id not in self._pump_queue and ch_id != self._active_pump:
+        if ch_id not in [q[0] for q in self._pump_queue] and ch_id != self._active_pump:
             self._pump_queue.append((ch_id, duration))
             print(f'[CH{ch_id}] in Warteschlange')
         return False
 
     def stop_pump(self, ch_id):
         ch = self.channels[ch_id]
+        was_running = ch.pump_running
+        before = ch.moisture_pct
         ch.stop_pump()
+        if was_running and self.cfg.get('notify.water_stop', True):
+            self._notify(f'✅ {ch.cfg.get("name", "Kanal")} gestoppt. Feuchte: {before}%.')
         if self._active_pump == ch_id:
             self._active_pump = None
         # aus Warteschlange entfernen
@@ -246,6 +253,8 @@ class Irrigation:
             if ch.check_pump_timeout():
                 self._log_event(self._active_pump, 'water_end',
                                 f'Fertig: {ch.moisture_pct}%')
+                if self.cfg.get('notify.water_stop', True):
+                    self._notify(f'✅ {ch.cfg.get("name", "Kanal")} fertig. Feuchte: {ch.moisture_pct}%.')
                 self._active_pump = None
         # Nächste Pumpe starten
         if self._active_pump is None and self._pump_queue:
@@ -253,6 +262,9 @@ class Irrigation:
             self._active_pump = ch_id
             self.channels[ch_id].start_pump(dur)
             self._log_event(ch_id, 'water_start', 'Aus Warteschlange')
+            if self.cfg.get('notify.water_start', True):
+                ch = self.channels[ch_id]
+                self._notify(f'💧 {ch.cfg.get("name", "Kanal")} aus Warteschlange gestartet ({ch.pump_duration}s).')
 
     # ── Sensoren ─────────────────────────────────────────────────────
     def update_sensors(self):
@@ -434,6 +446,8 @@ class Irrigation:
             'active_pump': self._active_pump if self._active_pump is not None else -1,
             'queue':       [q[0] for q in self._pump_queue],
             'weather':     self.weather,
+            'weather_status': self.weather_status,
+            'weather_enabled': bool(self.cfg.get('weather.enabled') and self.cfg.get('weather.api_key')),
             'dht':         self.dht_data,
             'frost_active': self._frost_active(),
             'channels':    [ch.as_dict() for ch in self.channels],

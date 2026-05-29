@@ -14,10 +14,11 @@ from plants_db import all_as_list
 
 class WebServer:
 
-    def __init__(self, irrigation, telegram=None, ota=None):
+    def __init__(self, irrigation, telegram=None, ota=None, mqtt=None):
         self.irrigation = irrigation
         self.telegram = telegram
         self.ota = ota
+        self.mqtt = mqtt
         self.cfg = get_config()
 
     async def run(self, port=80):
@@ -117,7 +118,7 @@ class WebServer:
             gc.collect()
 
     async def _route(self, method, path, query, reader, content_length=0, body_start=b"", filename=None):
-        if path == "/" or path == "/index.html":
+        if path == "/" or path == "/index.html" or path in ("/dashboard", "/dashboard.html", "/setup", "/setup.html"):
             return "FILE", "/index.html", "text/html; charset=utf-8"
 
         if path == "/api/status":
@@ -141,6 +142,22 @@ class WebServer:
             except Exception as e:
                 print("Config-Save Fehler:", e)
                 return self._json_response({"ok": False, "err": str(e)}, "400 Bad Request")
+
+
+        if path == "/api/telegram/test":
+            return await self._telegram_test()
+
+        if path == "/api/mqtt/test":
+            return self._mqtt_test()
+
+        if path in ("/api/weather", "/api/weather/update"):
+            if path == "/api/weather/update":
+                return self._weather_update()
+            return self._json_response({
+                "ok": bool(self.irrigation.weather),
+                "weather": self.irrigation.weather,
+                "status": self.irrigation.weather_status
+            })
 
         if path.startswith("/api/water/"):
             ch = int(path.split("/")[-1])
@@ -228,6 +245,56 @@ class WebServer:
             return await self._ota_stream(reader, content_length, body_start, filename)
 
         return "404 Not Found", "application/json", json.dumps({"error": "not found"})
+
+
+    async def _telegram_test(self):
+        if not self.cfg.get('telegram.enabled'):
+            return self._json_response({'ok': False, 'err': 'Telegram ist nicht aktiviert.'}, '400 Bad Request')
+        if not self.cfg.get('telegram.token') or not self.cfg.get('telegram.chat_id'):
+            return self._json_response({'ok': False, 'err': 'Bot-Token oder Chat-ID fehlt.'}, '400 Bad Request')
+        try:
+            msg = '✅ Smart Irrigation Testnachricht\nTelegram ist verbunden. Der ESP32 lebt noch, überraschenderweise.'
+            if self.telegram:
+                await self.telegram.send(msg)
+            else:
+                from telegram_bot import TelegramBot
+                tg = TelegramBot(self.irrigation, self.ota)
+                await tg.send(msg)
+            return self._json_response({'ok': True, 'msg': 'Telegram-Testnachricht gesendet.'})
+        except Exception as e:
+            return self._json_response({'ok': False, 'err': str(e)}, '500 Internal Server Error')
+
+    def _mqtt_test(self):
+        if not self.cfg.get('mqtt.enabled'):
+            return self._json_response({'ok': False, 'err': 'MQTT ist nicht aktiviert.'}, '400 Bad Request')
+        if not self.cfg.get('mqtt.server'):
+            return self._json_response({'ok': False, 'err': 'MQTT-Server fehlt.'}, '400 Bad Request')
+        try:
+            if self.mqtt:
+                result = self.mqtt.test_connection()
+            else:
+                from mqtt_client import MQTTClient
+                result = MQTTClient(self.irrigation).test_connection()
+            return self._json_response(result, '200 OK' if result.get('ok') else '500 Internal Server Error')
+        except Exception as e:
+            return self._json_response({'ok': False, 'err': str(e)}, '500 Internal Server Error')
+
+    def _weather_update(self):
+        if not self.cfg.get('weather.enabled'):
+            return self._json_response({'ok': False, 'err': 'Wetter ist nicht aktiviert.'}, '400 Bad Request')
+        if not self.cfg.get('weather.api_key'):
+            return self._json_response({'ok': False, 'err': 'OpenWeatherMap API-Key fehlt.'}, '400 Bad Request')
+        try:
+            from weather import Weather
+            data = Weather(self.irrigation).update()
+            ok = bool(data)
+            return self._json_response({
+                'ok': ok,
+                'weather': self.irrigation.weather,
+                'status': self.irrigation.weather_status
+            }, '200 OK' if ok else '500 Internal Server Error')
+        except Exception as e:
+            return self._json_response({'ok': False, 'err': str(e)}, '500 Internal Server Error')
 
     async def _stream_file(self, writer, path, ctype):
         try:

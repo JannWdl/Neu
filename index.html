@@ -273,7 +273,7 @@ input:checked+.slider:before{transform:translateX(18px)}
     </div>
     <label>Bot-Token</label><input id="cfg-tg-tok" type="text" placeholder="123456:ABC...">
     <label>Chat-ID</label><input id="cfg-tg-chat" type="text">
-    <div style="margin-top:12px"><button class="btn btn-b" onclick="saveCfg('telegram')">Speichern</button></div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-b" onclick="saveCfg('telegram')">Speichern</button><button class="btn btn-s" onclick="testTelegram()">Testnachricht senden</button></div><div id="tg-test" style="font-size:12px;color:var(--m);margin-top:8px"></div>
   </div>
   <div class="card">
     <div class="card-title">MQTT</div>
@@ -285,7 +285,7 @@ input:checked+.slider:before{transform:translateX(18px)}
     <label>User</label><input id="cfg-mq-user" type="text">
     <label>Passwort</label><input id="cfg-mq-pw" type="password">
     <label>Base Topic</label><input id="cfg-mq-topic" type="text">
-    <div style="margin-top:12px"><button class="btn btn-b" onclick="saveCfg('mqtt')">Speichern</button></div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-b" onclick="saveCfg('mqtt')">Speichern</button><button class="btn btn-s" onclick="testMqtt()">Verbindung prüfen</button></div><div id="mqtt-test" style="font-size:12px;color:var(--m);margin-top:8px"></div>
   </div>
   <div class="card">
     <div class="card-title">Wetter (OpenWeatherMap)</div>
@@ -301,7 +301,7 @@ input:checked+.slider:before{transform:translateX(18px)}
     <label>Frost-Schwelle (°C)</label><input id="cfg-wt-frostt" type="number" value="4">
     <label>API Key</label><input id="cfg-wt-key" type="text">
     <label>Stadt</label><input id="cfg-wt-city" type="text">
-    <div style="margin-top:12px"><button class="btn btn-b" onclick="saveCfg('weather')">Speichern</button></div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-b" onclick="saveCfg('weather')">Speichern</button><button class="btn btn-s" onclick="refreshWeather()">Wetter jetzt abrufen</button></div><div id="weather-test" style="font-size:12px;color:var(--m);margin-top:8px"></div>
   </div>
   <div class="card">
     <div class="card-title">Lokaler Sensor (DHT22/DHT11)</div>
@@ -398,14 +398,20 @@ function toast(msg, ok) {
 function api(path, opts) {
   return fetch(path, opts).then(r => r.json());
 }
+function valOrDash(v, suffix) {
+  return (v === undefined || v === null || Number.isNaN(v)) ? '–' : (v + (suffix || ''));
+}
+function kbOrDash(v) {
+  return (v === undefined || v === null || Number.isNaN(v)) ? '–' : (Math.round(v / 1024) + 'kB');
+}
 
 // ── Status-Loop ──────────────────────────────────
 function loadStatus() {
   api('/api/status').then(function(s) {
     state = s;
-    document.getElementById('hdr-ip').textContent = s.ip;
-    document.getElementById('hdr-rssi').textContent = s.rssi + 'dBm';
-    document.getElementById('hdr-heap').textContent = Math.round(s.heap / 1024) + 'kB';
+    document.getElementById('hdr-ip').textContent = s.ip || '–';
+    document.getElementById('hdr-rssi').textContent = valOrDash(s.rssi, 'dBm');
+    document.getElementById('hdr-heap').textContent = kbOrDash(s.heap);
     renderDash();
     if (document.getElementById('page-channels').classList.contains('active')) renderChannelDetail();
   }).catch(function(){});
@@ -459,22 +465,40 @@ function renderDash() {
   }
 
   // Wetter
-  if (s.weather && s.weather.temp !== undefined) {
-    document.getElementById('weather-card').style.display = '';
+  var wc = document.getElementById('weather-card');
+  var wb = document.getElementById('weather-body');
+  if (s.weather && s.weather.temp !== undefined && s.weather.temp !== null) {
+    wc.style.display = '';
     var w = s.weather;
     var dhtRow = (s.dht && s.dht.temp !== undefined)
       ? '<div class="stat-row"><span>Sensor (lokal)</span><span>' + s.dht.temp + ' °C / ' + s.dht.humidity + '%</span></div>'
       : '';
-    document.getElementById('weather-body').innerHTML =
-      '<div class="stat-row"><span>Temperatur</span><span>' + w.temp.toFixed(1) + ' °C</span></div>'
-      + '<div class="stat-row"><span>Luftfeuchte</span><span>' + Math.round(w.humidity) + '%</span></div>'
-      + '<div class="stat-row"><span>Niederschlag</span><span>' + (w.rain_1h||0).toFixed(1) + ' mm/h</span></div>'
+    var fc = '';
+    if (w.forecast && w.forecast.length) {
+      fc = '<div style="margin-top:8px;font-size:12px;color:var(--m)">Nächste Werte: ' + w.forecast.map(function(f){
+        var t = f.temp !== undefined && f.temp !== null ? Math.round(f.temp) + '°C' : '–';
+        return t + ' / ' + (f.description || f.main || '–');
+      }).join(' · ') + '</div>';
+    }
+    wb.innerHTML =
+      '<div class="stat-row"><span>Ort</span><span>' + (w.city||'–') + '</span></div>'
+      + '<div class="stat-row"><span>Temperatur</span><span>' + Number(w.temp).toFixed(1) + ' °C</span></div>'
+      + '<div class="stat-row"><span>Gefühlt</span><span>' + (w.feels_like !== undefined && w.feels_like !== null ? Number(w.feels_like).toFixed(1) + ' °C' : '–') + '</span></div>'
+      + '<div class="stat-row"><span>Luftfeuchte</span><span>' + Math.round(w.humidity || 0) + '%</span></div>'
+      + '<div class="stat-row"><span>Niederschlag</span><span>' + Number(w.rain_1h||0).toFixed(1) + ' mm/h</span></div>'
+      + '<div class="stat-row"><span>Wind</span><span>' + Number(w.wind||0).toFixed(1) + ' m/s</span></div>'
       + '<div class="stat-row"><span>Vorhersage</span><span>' + (w.rain_forecast ? '🌧 Regen' : '☀ kein Regen') + '</span></div>'
-      + dhtRow;
+      + '<div class="stat-row"><span>Status</span><span>' + (w.description || '–') + '</span></div>'
+      + dhtRow + fc;
+  } else if (s.weather_enabled || (s.weather_status && s.weather_status.configured)) {
+    wc.style.display = '';
+    var err = s.weather_status && s.weather_status.err ? s.weather_status.err : 'Noch keine Wetterdaten geladen.';
+    wb.innerHTML = '<div style="font-size:13px;color:var(--m)">Wetter ist aktiviert, aber es liegen noch keine Daten vor.<br>' + err + '</div>';
   } else if (s.dht && s.dht.temp !== undefined) {
-    document.getElementById('weather-card').style.display = '';
-    document.getElementById('weather-body').innerHTML =
-      '<div class="stat-row"><span>Sensor (lokal)</span><span>' + s.dht.temp + ' °C / ' + s.dht.humidity + '%</span></div>';
+    wc.style.display = '';
+    wb.innerHTML = '<div class="stat-row"><span>Sensor (lokal)</span><span>' + s.dht.temp + ' °C / ' + s.dht.humidity + '%</span></div>';
+  } else {
+    wc.style.display = 'none';
   }
 }
 
@@ -691,6 +715,34 @@ function saveCfg(section) {
   }
   api('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)})
     .then(function(r){ toast(r.ok ? 'Gespeichert ✓' : 'Fehler: '+r.err, r.ok); });
+}
+
+function testTelegram() {
+  var el = document.getElementById('tg-test');
+  el.textContent = 'Sende Testnachricht...';
+  api('/api/telegram/test', {method:'POST'}).then(function(r){
+    el.textContent = r.ok ? '✅ Testnachricht gesendet.' : '❌ ' + (r.err || 'Fehler');
+    toast(r.ok ? 'Telegram OK' : 'Telegram Fehler', r.ok);
+  }).catch(function(e){ el.textContent = '❌ ' + e; toast('Telegram Fehler', false); });
+}
+
+function testMqtt() {
+  var el = document.getElementById('mqtt-test');
+  el.textContent = 'Prüfe MQTT-Verbindung...';
+  api('/api/mqtt/test', {method:'POST'}).then(function(r){
+    el.textContent = r.ok ? ('✅ ' + (r.msg || 'MQTT OK') + (r.topic ? ' · Topic: ' + r.topic : '')) : '❌ ' + (r.err || 'Fehler');
+    toast(r.ok ? 'MQTT OK' : 'MQTT Fehler', r.ok);
+  }).catch(function(e){ el.textContent = '❌ ' + e; toast('MQTT Fehler', false); });
+}
+
+function refreshWeather() {
+  var el = document.getElementById('weather-test');
+  el.textContent = 'Rufe Wetterdaten ab...';
+  api('/api/weather/update', {method:'POST'}).then(function(r){
+    el.textContent = r.ok ? '✅ Wetterdaten aktualisiert.' : '❌ ' + ((r.status && r.status.err) || r.err || 'Fehler');
+    toast(r.ok ? 'Wetter aktualisiert' : 'Wetter Fehler', r.ok);
+    loadStatus();
+  }).catch(function(e){ el.textContent = '❌ ' + e; toast('Wetter Fehler', false); });
 }
 
 function reboot() {
