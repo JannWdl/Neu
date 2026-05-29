@@ -201,13 +201,13 @@ def upload_files(port, zip_path):
                 if (n.endswith(".py") or n.endswith(".html") or n.endswith(".md"))
                    and n.count("/") == 1 and n.startswith(prefix)
             ])
-
-        # boot.py und main.py ZULETZT übertragen – sie starten den Code,
-        # der sonst die serielle Verbindung blockiert (TransportError)
+          
+        # boot.py als ALLERLETZTES übertragen – sobald diese Datei existiert,
+        # startet der ESP32 ggf. Code, der die serielle Verbindung blockiert.
         def _order(name):
             base = os.path.basename(name)
-            if base == "main.py": return 2
-            if base == "boot.py": return 1
+            if base == "boot.py": return 2  # Höchster Wert = ganz am Schluss
+            if base == "main.py": return 1
             return 0
         entries.sort(key=_order)
 
